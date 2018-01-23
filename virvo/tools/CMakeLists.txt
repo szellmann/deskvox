@@ -6,6 +6,7 @@ if(NOT BUILD_SHARED_LIBS)
   add_definitions(-DVIRVO_STATIC)
 endif()
 
+add_subdirectory(entropy)
 ADD_SUBDIRECTORY(vconv)
 if(DESKVOX_USE_ASIO)
   ADD_SUBDIRECTORY(vserver_asio)
