@@ -11,6 +11,17 @@ namespace virvo
 namespace stats
 {
 
+  struct VVAPI EntropyRegion
+  {
+    float entropy;
+    aabbi bbox;
+  };
+
+  bool operator<(const EntropyRegion& a, const EntropyRegion& b)
+  {
+    return a.entropy < b.entropy;
+  }
+
   VVAPI void makeHistogram(const vvVolDesc* vd,
       aabbi bbox,
       int chan1,
@@ -33,7 +44,7 @@ namespace stats
   // is an allocated array that can hold numRegions
   // floating point values
   VVAPI void entropyRegions(const vvVolDesc* vd,
-      float* dst,
+      EntropyRegion* dst,
       vec3i regionSize = vec3i(8,8,8));
 
 } // stats

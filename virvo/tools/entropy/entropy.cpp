@@ -7,18 +7,18 @@
 
 using namespace virvo;
 
-void saveEntropyRegions(const float* regions, vec3i numRegions, std::string filename, bool overwrite)
+void saveEntropyRegions(const stats::EntropyRegion* regions, vec3i numRegions, std::string filename, bool overwrite)
 {
   int size = numRegions.x * numRegions.y * numRegions.z;
 
-  float min = *std::min_element(regions, regions+size);
-  float max = *std::max_element(regions, regions+size);
+  float min = (*std::min_element(regions, regions+size)).entropy;
+  float max = (*std::max_element(regions, regions+size)).entropy;
 
   std::vector<uchar> bytes(size);
 
   for (int i=0; i<size; ++i)
   {
-    bytes[i] = (int)(((regions[i]-min) / (max-min)) * 255.f);
+    bytes[i] = (int)(((regions[i].entropy-min) / (max-min)) * 255.f);
   }
 
   vvVolDesc vd;
@@ -54,10 +54,10 @@ int main(int argc, char** argv)
   }
   else vd.printInfoLine();
 
-  virvo::vec3i regionSize(4,4,4);
-  virvo::vec3i num = virvo::stats::numEntropyRegions(&vd, regionSize);
-  std::vector<float> dst(num.x*num.y*num.z);
-  virvo::stats::entropyRegions(&vd, dst.data(), regionSize);
+  vec3i regionSize(4,4,4);
+  vec3i num = stats::numEntropyRegions(&vd, regionSize);
+  std::vector<stats::EntropyRegion> dst(num.x*num.y*num.z);
+  stats::entropyRegions(&vd, dst.data(), regionSize);
   saveEntropyRegions(dst.data(), num, "/Users/stefan/entropy.rvf", true);
 
   return 0;

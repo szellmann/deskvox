@@ -97,7 +97,7 @@ vec3i numEntropyRegions(const vvVolDesc* vd, vec3i regionSize)
   return result;
 }
 
-void entropyRegions(const vvVolDesc* vd, float* dst, vec3i regionSize)
+void entropyRegions(const vvVolDesc* vd, EntropyRegion* dst, vec3i regionSize)
 {
   int sizex = (int)vd->vox[0];
   int sizey = (int)vd->vox[1];
@@ -113,9 +113,9 @@ void entropyRegions(const vvVolDesc* vd, float* dst, vec3i regionSize)
     int maxy = std::min(y + regionSize.y, sizey);
     int maxz = std::min(z + regionSize.z, sizez);
 
-    aabbi bbox(vec3i(x,y,z), vec3i(maxx,maxy,maxz));
-
-    dst[i++] = entropy(vd, bbox, 0, 1);
+    dst[i].bbox = aabbi(vec3i(x,y,z), vec3i(maxx,maxy,maxz));
+    dst[i].entropy = entropy(vd, dst[i].bbox, 0, 1);
+    ++i;
   }
 }
 
