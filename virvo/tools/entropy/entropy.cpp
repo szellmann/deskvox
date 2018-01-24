@@ -10,6 +10,37 @@
 
 using namespace virvo;
 
+template <typename T>
+void save(const T* data, size_t size, vec3i vox, std::string filename, bool overwrite)
+{
+  std::vector<uchar> bytes(size);
+
+  float min = *std::min_element(data, data+size);
+  float max = *std::max_element(data, data+size);std::cout << min << ' ' << max << '\n';
+
+  for (int i=0; i<size; ++i)
+  {
+    bytes[i] = (int)(((data[i]-min) / (max-min)) * 255.f);
+  }
+
+  vvVolDesc vd;
+  vd.setFilename(filename.c_str());
+  vd.bpc = 1;
+  vd.chan = 1;
+  for (int i=0; i<3; ++i)
+  {
+    vd.vox[i] = vox[i];
+    vd.dist[i] = 1.0f;
+  }
+
+  vd.addFrame((uchar*)bytes.data(), vvVolDesc::NO_DELETE);
+  ++vd.frames;
+
+  vvFileIO fio;
+  if (fio.saveVolumeData(&vd, overwrite) != vvFileIO::OK)
+    std::cerr << "Error!\n";
+}
+
 void saveEntropyRegions(const stats::EntropyRegion* regions, vec3i numRegions, std::string filename, bool overwrite)
 {
   int size = numRegions.x * numRegions.y * numRegions.z;
@@ -119,6 +150,38 @@ int main(int argc, char** argv)
   }
   else vd.printInfoLine();
 
+#if 1
+  std::vector<float> data(vd.getFrameVoxels());
+  for (int z=0; z<(int)vd.vox[2]; ++z)
+    for (int y=0; y<(int)vd.vox[1]; ++y)
+      for (int x=0; x<(int)vd.vox[0]; ++x)
+  {
+    size_t index = z*vd.vox[0]*vd.vox[1] + y*vd.vox[0] + x;
+
+    std::vector<vec3i> indices;
+    stats::makeSphericalNeighborhood(vd, vec3i(x,y,z), 2, indices);
+
+    data[index] = stats::entropy(vd, indices.data(), indices.size(), 0, 1);std::cout << index << ' ' << (vd.vox[0]*vd.vox[1]*vd.vox[2])<< '\n';
+  }
+
+  save(data.data(), data.size(), vec3i(vd.vox), "/Users/stefan/entropy.rvf", true);
+#endif
+
+
+  // Strategy:
+  /*
+    1.) Subdivide volume into bricks
+    2.) Calculate entropy for each brick
+    3.) Sort the brick list by entropy
+    4.) Calculate the median (or similar heuristic) of the
+        brick list wrt entropy, gives you two lists:
+        lo: low entropy bricks
+        hi: hi entropy bricks
+    5.) Calculate local histograms and get the dominant
+        voxels from those, group voxels by *contributing*
+        either low or high entropy
+  */
+#if 0
   vec3i regionSize(16,16,16);
   vec3i num = stats::numEntropyRegions(&vd, regionSize);
   std::vector<stats::EntropyRegion> dst(num.x*num.y*num.z);
@@ -197,6 +260,7 @@ int main(int argc, char** argv)
 
   std::cout << lo[lo.size()-1].first << '\n';
   std::cout << hi[hi.size()-1].first << '\n';
+#endif
 
   return 0;
 }

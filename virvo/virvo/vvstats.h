@@ -32,15 +32,23 @@ namespace stats
 
   // Calculate histogram from voxels in index list
   VVAPI void makeHistogram(const vvVolDesc* vd,
-      size_t indices,
+      const vec3i* indices,
       size_t numIndices,
       int chan1,
       int numChan,
       int* numBuckets,
       int* count);
 
+  // Calculate entropy from voxels in bbox
   VVAPI float entropy(const vvVolDesc* vd,
       aabbi bbox,
+      int chan1,
+      int numChan);
+
+  // Calculate entropy from voxels in index list
+  VVAPI float entropy(const vvVolDesc& vd,
+      const vec3i* indices,
+      size_t numIndices,
       int chan1,
       int numChan);
 
@@ -56,6 +64,11 @@ namespace stats
   VVAPI void entropyRegions(const vvVolDesc* vd,
       EntropyRegion* dst,
       vec3i regionSize = vec3i(8,8,8));
+
+  VVAPI void makeSphericalNeighborhood(const vvVolDesc& vd,
+      vec3i center,
+      int radius,
+      std::vector<vec3i>& indices);
 
 } // stats
 } // virvo
