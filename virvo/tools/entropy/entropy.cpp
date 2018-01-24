@@ -11,7 +11,7 @@
 using namespace virvo;
 
 template <typename T>
-void save(const T* data, size_t size, vec3i vox, std::string filename, bool overwrite)
+void save(const T* data, size_t size, vec3i vox, vec3 dist, std::string filename, bool overwrite)
 {
   std::vector<uchar> bytes(size);
 
@@ -30,8 +30,10 @@ void save(const T* data, size_t size, vec3i vox, std::string filename, bool over
   for (int i=0; i<3; ++i)
   {
     vd.vox[i] = vox[i];
-    vd.dist[i] = 1.0f;
+    vd.dist[i] = dist[i];
   }
+  vd.mapping(0) = vec2(min,max);
+  vd.range(0) = vec2(min,max);
 
   vd.addFrame((uchar*)bytes.data(), vvVolDesc::NO_DELETE);
   ++vd.frames;
@@ -152,19 +154,27 @@ int main(int argc, char** argv)
 
 #if 1
   std::vector<float> data(vd.getFrameVoxels());
+
+  int radius = 2;
+  int maxIndices = (2*radius+1)*(2*radius+1)*(2*radius+1);
+
+  std::vector<vec3i> indices(maxIndices);
+
   for (int z=0; z<(int)vd.vox[2]; ++z)
     for (int y=0; y<(int)vd.vox[1]; ++y)
       for (int x=0; x<(int)vd.vox[0]; ++x)
   {
     size_t index = z*vd.vox[0]*vd.vox[1] + y*vd.vox[0] + x;
 
-    std::vector<vec3i> indices;
-    stats::makeSphericalNeighborhood(vd, vec3i(x,y,z), 2, indices);
+    size_t numIndices = 0;
+    stats::makeSphericalNeighborhood(vd, vec3i(x,y,z), radius, indices.data(), numIndices);
 
-    data[index] = stats::entropy(vd, indices.data(), indices.size(), 0, 1);std::cout << index << ' ' << (vd.vox[0]*vd.vox[1]*vd.vox[2])<< '\n';
+    data[index] = stats::entropy(vd, indices.data(), numIndices, 0, 1);
+
+    std::cout << index << ' ' << (vd.vox[0]*vd.vox[1]*vd.vox[2])<< '\n';
   }
 
-  save(data.data(), data.size(), vec3i(vd.vox), "/Users/stefan/entropy.rvf", true);
+  save(data.data(), data.size(), vec3i(vd.vox), vd.dist, "/Users/stefan/entropy.xvf", true);
 #endif
 
 

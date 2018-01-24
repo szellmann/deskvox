@@ -139,7 +139,7 @@ float entropy(const vvVolDesc& vd,
 
   int numVoxels(numIndices);
 
-  int numBuckets[] = { vd.bpc == 1 ? 255 : 65535 };
+  int numBuckets[] = { 255 };//{ vd.bpc == 1 ? 255 : 65535 };
 
   std::vector<int> histogram(numBuckets[0]);
 
@@ -192,9 +192,11 @@ void entropyRegions(const vvVolDesc* vd, EntropyRegion* dst, vec3i regionSize)
   }
 }
 
-void makeSphericalNeighborhood(const vvVolDesc& vd, vec3i center, int radius, std::vector<vec3i>& indices)
+void makeSphericalNeighborhood(const vvVolDesc& vd, vec3i center, int radius, vec3i* indices, size_t& numIndices)
 {
   aabbi bbox(center-radius, center+radius);
+
+  numIndices = 0;
 
   for (int z=bbox.min.z; z <= bbox.max.z; ++z)
     for (int y=bbox.min.y; y <= bbox.max.y; ++y)
@@ -207,7 +209,7 @@ void makeSphericalNeighborhood(const vvVolDesc& vd, vec3i center, int radius, st
     vec3f xyz(x,y,z);
 
     if (length(xyz-cf) <= static_cast<float>(radius))
-        indices.push_back(vec3i(x,y,z));
+        indices[numIndices++] = vec3i(x,y,z);
   }
 }
 

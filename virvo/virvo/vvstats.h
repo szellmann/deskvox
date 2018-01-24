@@ -68,7 +68,8 @@ namespace stats
   VVAPI void makeSphericalNeighborhood(const vvVolDesc& vd,
       vec3i center,
       int radius,
-      std::vector<vec3i>& indices);
+      vec3i* indices,
+      size_t& numIndices);
 
 } // stats
 } // virvo
