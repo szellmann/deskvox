@@ -22,8 +22,18 @@ namespace stats
     return a.entropy < b.entropy;
   }
 
+  // Calculate histogram from voxels in bbox
   VVAPI void makeHistogram(const vvVolDesc* vd,
       aabbi bbox,
+      int chan1,
+      int numChan,
+      int* numBuckets,
+      int* count);
+
+  // Calculate histogram from voxels in index list
+  VVAPI void makeHistogram(const vvVolDesc* vd,
+      size_t indices,
+      size_t numIndices,
       int chan1,
       int numChan,
       int* numBuckets,
