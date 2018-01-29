@@ -23,7 +23,8 @@ namespace stats
   }
 
   // Calculate histogram from voxels in bbox
-  VVAPI void makeHistogram(const vvVolDesc* vd,
+  VVAPI void makeHistogram(const vvVolDesc& vd,
+      int frame,
       aabbi bbox,
       int chan1,
       int numChan,
@@ -31,7 +32,8 @@ namespace stats
       int* count);
 
   // Calculate histogram from voxels in index list
-  VVAPI void makeHistogram(const vvVolDesc* vd,
+  VVAPI void makeHistogram(const vvVolDesc& vd,
+      int frame,
       const vec3i* indices,
       size_t numIndices,
       int chan1,
@@ -40,13 +42,15 @@ namespace stats
       int* count);
 
   // Calculate entropy from voxels in bbox
-  VVAPI float entropy(const vvVolDesc* vd,
+  VVAPI float entropy(const vvVolDesc& vd,
+      int frame,
       aabbi bbox,
       int chan1,
       int numChan);
 
   // Calculate entropy from voxels in index list
   VVAPI float entropy(const vvVolDesc& vd,
+      int frame,
       const vec3i* indices,
       size_t numIndices,
       int chan1,
@@ -70,6 +74,11 @@ namespace stats
       int radius,
       vec3i* indices,
       size_t& numIndices);
+
+  // Add a channel containing entropy for each voxel,
+  // calculated in a spherical neighborhood around each
+  // individual voxel
+  VVAPI void addEntropy(vvVolDesc& vd);
 
 } // stats
 } // virvo

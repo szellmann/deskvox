@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <numeric>
 #include <sstream>
 #include <vector>
@@ -16,7 +17,8 @@ namespace virvo
 namespace stats
 {
 
-void makeHistogram(const vvVolDesc* vd,
+void makeHistogram(const vvVolDesc& vd,
+    int frame,
     aabbi bbox,
     int chan1,
     int numChan,
@@ -25,8 +27,6 @@ void makeHistogram(const vvVolDesc* vd,
 {
   int totalBuckets = std::accumulate(buckets, buckets+numChan, 1, std::multiplies<int>());
   std::fill(count, count+totalBuckets, 0);        // initialize counter array
-
-  int frame = 0;
 
   //vvStopwatch sw;sw.start();
   for (int z=bbox.min.z; z != bbox.max.z; ++z)
@@ -37,12 +37,12 @@ void makeHistogram(const vvVolDesc* vd,
     int factor = 1;                               // multiplication factor for dstIndex
     for (int c=0; c<numChan; ++c) 
     {
-      size_t index = (z*vd->vox[0]*vd->vox[1] + y*vd->vox[0] + x) * vd->getBPV();
-      float voxVal = vd->getChannelValue(frame, index, chan1+c);
+      size_t index = (z*vd.vox[0]*vd.vox[1] + y*vd.vox[0] + x) * vd.getBPV();
+      float voxVal = vd.getChannelValue(frame, index, chan1+c);
 
       // Bucket index with respect to channel c
-      int bucketIndex = (int)((voxVal - vd->range(c).x)
-          * (buckets[c] / (vd->range(c).y-vd->range(c).x)));
+      int bucketIndex = (int)((voxVal - vd.range(c).x)
+          * (buckets[c] / (vd.range(c).y-vd.range(c).x)));
       bucketIndex = ts_clamp(bucketIndex, 0, buckets[c]-1);
 
       dstIndex += bucketIndex * factor;
@@ -53,7 +53,8 @@ void makeHistogram(const vvVolDesc* vd,
   //std::cout << sw.getTime() << '\n';
 }
 
-void makeHistogram(const vvVolDesc* vd,
+void makeHistogram(const vvVolDesc& vd,
+    int frame,
     const vec3i* indices,
     size_t numIndices,
     int chan1,
@@ -63,8 +64,6 @@ void makeHistogram(const vvVolDesc* vd,
 {
   int totalBuckets = std::accumulate(buckets, buckets+numChan, 1, std::multiplies<int>());
   std::fill(count, count+totalBuckets, 0);        // initialize counter array
-
-  int frame = 0;
 
   //vvStopwatch sw;sw.start();
   for (size_t i=0; i<numIndices; ++i)
@@ -77,12 +76,12 @@ void makeHistogram(const vvVolDesc* vd,
     int factor = 1;                               // multiplication factor for dstIndex
     for (int c=0; c<numChan; ++c) 
     {
-      size_t index = (z*vd->vox[0]*vd->vox[1] + y*vd->vox[0] + x) * vd->getBPV();
-      float voxVal = vd->getChannelValue(frame, index, chan1+c);
+      size_t index = (z*vd.vox[0]*vd.vox[1] + y*vd.vox[0] + x) * vd.getBPV();
+      float voxVal = vd.getChannelValue(frame, index, chan1+c);
 
       // Bucket index with respect to channel c
-      int bucketIndex = (int)((voxVal - vd->range(c).x)
-          * (buckets[c] / (vd->range(c).y-vd->range(c).x)));
+      int bucketIndex = (int)((voxVal - vd.range(c).x)
+          * (buckets[c] / (vd.range(c).y-vd.range(c).x)));
       bucketIndex = ts_clamp(bucketIndex, 0, buckets[c]-1);
 
       dstIndex += bucketIndex * factor;
@@ -93,7 +92,8 @@ void makeHistogram(const vvVolDesc* vd,
   //std::cout << sw.getTime() << '\n';
 }
 
-float entropy(const vvVolDesc* vd,
+float entropy(const vvVolDesc& vd,
+    int frame,
     aabbi bbox,
     int chan1,
     int numChan)
@@ -102,15 +102,15 @@ float entropy(const vvVolDesc* vd,
   // ...
   assert(chan1 == 0 && numChan == 1);
 
-  assert(vd->bpc <= 2);
+  assert(vd.bpc <= 2);
 
   int numVoxels = bbox.size().x * bbox.size().y * bbox.size().z;
 
-  int numBuckets[] = { vd->bpc == 1 ? 255 : 65535 };
+  int numBuckets[] = { vd.bpc == 1 ? 255 : 65535 };
 
   std::vector<int> histogram(numBuckets[0]);
 
-  makeHistogram(vd, bbox, chan1, numChan, numBuckets, histogram.data());
+  makeHistogram(vd, frame, bbox, chan1, numChan, numBuckets, histogram.data());
 
   std::vector<float> probs(numBuckets[0]);
 
@@ -126,6 +126,7 @@ float entropy(const vvVolDesc* vd,
 }
 
 float entropy(const vvVolDesc& vd,
+    int frame,
     const vec3i* indices,
     size_t numIndices,
     int chan1,
@@ -143,7 +144,7 @@ float entropy(const vvVolDesc& vd,
 
   std::vector<int> histogram(numBuckets[0]);
 
-  makeHistogram(&vd, indices, numIndices, chan1, numChan, numBuckets, histogram.data());
+  makeHistogram(vd, frame, indices, numIndices, chan1, numChan, numBuckets, histogram.data());
 
   std::vector<float> probs(numBuckets[0]);
 
@@ -187,7 +188,7 @@ void entropyRegions(const vvVolDesc* vd, EntropyRegion* dst, vec3i regionSize)
     int maxz = std::min(z + regionSize.z, sizez);
 
     dst[i].bbox = aabbi(vec3i(x,y,z), vec3i(maxx,maxy,maxz));
-    dst[i].entropy = entropy(vd, dst[i].bbox, 0, 1);
+    dst[i].entropy = entropy(vd, 0, dst[i].bbox, 0, 1);
     ++i;
   }
 }
@@ -210,6 +211,57 @@ void makeSphericalNeighborhood(const vvVolDesc& vd, vec3i center, int radius, ve
 
     if (length(xyz-cf) <= static_cast<float>(radius))
         indices[numIndices++] = vec3i(x,y,z);
+  }
+}
+
+void addEntropy(vvVolDesc& vd)
+{
+  int radius = 2;
+  int maxIndices = (2*radius+1)*(2*radius+1)*(2*radius+1);
+
+  std::vector<vec3i> indices(maxIndices);
+
+  float minEntropy =  std::numeric_limits<float>::max();
+  float maxEntropy = -std::numeric_limits<float>::max();
+
+  vd.convertChannels(vd.getChan() + 1);
+  vd.setChannelName(vd.getChan()-1, "ENTROPY");
+
+  for (int f=0; f<(int)vd.frames; ++f)
+  {
+    const uint8_t* raw = vd.getRaw(f);
+
+    for (int z=0; z<(int)vd.vox[2]; ++z)
+    {
+      for (int y=0; y<(int)vd.vox[1]; ++y)
+      {
+        for (int x=0; x<(int)vd.vox[0]; ++x)
+        {
+          size_t index = z*vd.vox[0]*vd.vox[1] + y*vd.vox[0] + x;
+
+          size_t numIndices = 0;
+          stats::makeSphericalNeighborhood(vd, vec3i(x,y,z), radius, indices.data(), numIndices);
+
+          float ent = stats::entropy(vd, f, indices.data(), numIndices, 0, 1); 
+
+          //switch (vd.bpc)
+          //{
+          //  case 1:
+          //}
+
+          // Store min/max
+          if (ent < minEntropy)
+            minEntropy = ent;
+
+          if (ent > maxEntropy)
+            maxEntropy = ent;
+
+          raw += vd.getBPV();
+        }
+        raw += vd.getBPV() * vd.vox[0];
+      }
+      raw += vd.getSliceBytes();
+    }
   }
 }
 
