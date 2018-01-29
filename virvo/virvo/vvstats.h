@@ -78,7 +78,7 @@ namespace stats
   // Add a channel containing entropy for each voxel,
   // calculated in a spherical neighborhood around each
   // individual voxel
-  VVAPI void addEntropy(vvVolDesc& vd);
+  VVAPI void addEntropyChannel(vvVolDesc& vd);
 
 } // stats
 } // virvo

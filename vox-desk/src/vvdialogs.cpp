@@ -26,6 +26,7 @@
 
 // Virvo:
 #include <virvo/math/math.h>
+#include <virvo/vvstats.h>
 #include <vvopengl.h>
 #include <vvvirvo.h>
 #include <vvdebugmsg.h>
@@ -2929,7 +2930,8 @@ long VVDataTypeDialog::onAddChannel(FXObject*, FXSelector, void*)
 
 long VVDataTypeDialog::onAddGradMag(FXObject*, FXSelector, void*)
 {
-  _canvas->_vd->addGradient(_channelCombo->getCurrentItem(), vvVolDesc::GRADIENT_MAGNITUDE);
+  virvo::stats::addEntropyChannel(*_canvas->_vd);
+  //_canvas->_vd->addGradient(_channelCombo->getCurrentItem(), vvVolDesc::GRADIENT_MAGNITUDE);
   _shell->_transWindow->setDirtyHistogram();
   _shell->updateRendererVolume();
   _shell->setCanvasRenderer();

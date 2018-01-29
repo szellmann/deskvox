@@ -214,7 +214,7 @@ void makeSphericalNeighborhood(const vvVolDesc& vd, vec3i center, int radius, ve
   }
 }
 
-void addEntropy(vvVolDesc& vd)
+void addEntropyChannel(vvVolDesc& vd)
 {
   int radius = 2;
   int maxIndices = (2*radius+1)*(2*radius+1)*(2*radius+1);
@@ -224,43 +224,65 @@ void addEntropy(vvVolDesc& vd)
   float minEntropy =  std::numeric_limits<float>::max();
   float maxEntropy = -std::numeric_limits<float>::max();
 
+  int srcChan = vd.getChan()-1;
+
   vd.convertChannels(vd.getChan() + 1);
   vd.setChannelName(vd.getChan()-1, "ENTROPY");
 
+  std::vector<float> data(vd.getFrameVoxels() * vd.frames);
+
   for (int f=0; f<(int)vd.frames; ++f)
   {
-    const uint8_t* raw = vd.getRaw(f);
-
     for (int z=0; z<(int)vd.vox[2]; ++z)
-    {
       for (int y=0; y<(int)vd.vox[1]; ++y)
-      {
         for (int x=0; x<(int)vd.vox[0]; ++x)
+    {
+      size_t index = f*vd.getFrameVoxels() + z*vd.vox[0]*vd.vox[1] + y*vd.vox[0] + x;
+
+      size_t numIndices = 0;
+      stats::makeSphericalNeighborhood(vd, vec3i(x,y,z), radius, indices.data(), numIndices);
+
+      data[index] = stats::entropy(vd, f, indices.data(), numIndices, srcChan, 1); 
+
+      // Store min/max
+      if (data[index] < minEntropy)
+        minEntropy = data[index];
+
+      if (data[index] > maxEntropy)
+        maxEntropy = data[index];
+    }
+  }
+
+  for (int f=0; f<(int)vd.frames; ++f)
+  {
+    uint8_t* raw = vd.getRaw(f);
+
+    for (size_t i=0; i<vd.getFrameVoxels(); ++i)
+    {
+      uint8_t* dst = raw + f*vd.getFrameBytes() + i*vd.getBPV() + (srcChan+1);
+      switch (vd.bpc)
+      {
+        case 1:
         {
-          size_t index = z*vd.vox[0]*vd.vox[1] + y*vd.vox[0] + x;
-
-          size_t numIndices = 0;
-          stats::makeSphericalNeighborhood(vd, vec3i(x,y,z), radius, indices.data(), numIndices);
-
-          float ent = stats::entropy(vd, f, indices.data(), numIndices, 0, 1); 
-
-          //switch (vd.bpc)
-          //{
-          //  case 1:
-          //}
-
-          // Store min/max
-          if (ent < minEntropy)
-            minEntropy = ent;
-
-          if (ent > maxEntropy)
-            maxEntropy = ent;
-
-          raw += vd.getBPV();
+          int ival = static_cast<int>(((data[i]-minEntropy) / (maxEntropy-minEntropy)) * 255.0f);
+          *dst = ival;
+          break;
         }
-        raw += vd.getBPV() * vd.vox[0];
+
+        case 2:
+        {
+          ushort ival = static_cast<ushort>(((data[i]-minEntropy) / (maxEntropy-minEntropy)) * 65535.0f);
+          memcpy(dst, &ival, sizeof(ushort));
+          break;
+        }
+
+        case 4:
+          memcpy(dst, &data[i], sizeof(float));
+          break;
+
+        default:
+          break;
       }
-      raw += vd.getSliceBytes();
     }
   }
 }

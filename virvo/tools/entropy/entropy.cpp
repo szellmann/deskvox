@@ -26,12 +26,14 @@ void save(const T* data, size_t size, vec3i vox, vec3 dist, std::string filename
   vvVolDesc vd;
   vd.setFilename(filename.c_str());
   vd.bpc = 1;
-  vd.chan = 1;
+  vd.setChan(1);
+  vec3 vddist = vd.getDist();
   for (int i=0; i<3; ++i)
   {
     vd.vox[i] = vox[i];
-    vd.dist[i] = dist[i];
+    vddist[i] = dist[i];
   }
+  vd.setDist(vddist);
   vd.mapping(0) = vec2(min,max);
   vd.range(0) = vec2(min,max);
 
@@ -60,12 +62,12 @@ void saveEntropyRegions(const stats::EntropyRegion* regions, vec3i numRegions, s
   vvVolDesc vd;
   vd.setFilename(filename.c_str());
   vd.bpc = 1;
-  vd.chan = 1;
+  vd.setChan(1);
   for (int i=0; i<3; ++i)
   {
     vd.vox[i] = numRegions[i];
-    vd.dist[i] = 1.0f;
   }
+  vd.setDist(1.0f, 1.0f, 1.0f);
 
   vd.addFrame((uchar*)bytes.data(), vvVolDesc::NO_DELETE);
   ++vd.frames;
@@ -152,7 +154,7 @@ int main(int argc, char** argv)
   }
   else vd.printInfoLine();
 
-#if 1
+#if 0
   std::vector<float> data(vd.getFrameVoxels());
 
   int radius = 2;
@@ -174,7 +176,7 @@ int main(int argc, char** argv)
     std::cout << index << ' ' << (vd.vox[0]*vd.vox[1]*vd.vox[2])<< '\n';
   }
 
-  save(data.data(), data.size(), vec3i(vd.vox), vd.dist, "/Users/stefan/entropy.xvf", true);
+  save(data.data(), data.size(), vec3i(vd.vox), vd.getDist(), "/Users/stefan/entropy.xvf", true);
 #endif
 
 
