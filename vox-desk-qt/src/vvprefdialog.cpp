@@ -137,6 +137,7 @@ vvPrefDialog::vvPrefDialog(vvCanvas* canvas, QWidget* parent)
   impl->rendererDescriptions.insert(std::make_pair("planar", "OpenGL textures"));
   impl->rendererDescriptions.insert(std::make_pair("spherical", "OpenGL textures"));
   impl->rendererDescriptions.insert(std::make_pair("rayrend", "Ray casting"));
+  impl->rendererDescriptions.insert(std::make_pair("skip", "Ray casting with space skipping"));
 
   impl->algoDescriptions.insert(std::make_pair("default", "Autoselect"));
   impl->algoDescriptions.insert(std::make_pair("slices", "2D textures (slices)"));
@@ -157,6 +158,13 @@ vvPrefDialog::vvPrefDialog(vvCanvas* canvas, QWidget* parent)
   {
     ui->rendererBox->addItem(impl->rendererDescriptions["rayrend"].c_str());
     impl->rendererMap.insert(std::make_pair(idx, vvRenderer::RAYREND));
+    ++idx;
+  }
+
+  if (vvRendererFactory::hasRenderer(vvRenderer::SKIPRAYREND))
+  {
+    ui->rendererBox->addItem(impl->rendererDescriptions["skip"].c_str());
+    impl->rendererMap.insert(std::make_pair(idx, vvRenderer::SKIPRAYREND));
     ++idx;
   }
 
@@ -484,6 +492,9 @@ void vvPrefDialog::emitRenderer()
       name = impl->texRendTypeMap[ui->geometryBox->currentIndex()];
       options["voxeltype"] = impl->voxTypeMap[ui->voxTypeBox->currentIndex()];
       break;
+    case vvRenderer::SKIPRAYREND:
+      name = "skip";
+      break;
     default:
       name = "default";
       break;
@@ -542,6 +553,7 @@ void vvPrefDialog::updateUi()
   // indices to activate appropriate options tool box pages
   static const int TexIdx = 0;
   static const int RayIdx = 1;
+  static const int SkipIdx = 2;
 
 
   //
@@ -560,6 +572,11 @@ void vvPrefDialog::updateUi()
 
     ui->rendererBox->setCurrentIndex(RayIdx);
     ui->optionsToolBox->setCurrentIndex(RayIdx);
+    break;
+
+  case vvRenderer::SKIPRAYREND:
+
+    ui->rendererBox->setCurrentIndex(SkipIdx);
     break;
 
   case vvRenderer::TEXREND:

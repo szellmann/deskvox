@@ -15,6 +15,7 @@ find_package(Protokit)
 find_package(Pthreads)
 find_package(SNAPPY)
 find_package(Teem)
+find_package(Visionaray)
 find_package(VolPack)
 find_package(X11)
 if(DESKVOX_USE_GDCM)
@@ -44,6 +45,7 @@ deskvox_use_package(Protokit)
 deskvox_use_package(Pthreads)
 deskvox_use_package(SNAPPY)
 deskvox_use_package(Teem)
+deskvox_use_package(Visionaray)
 deskvox_use_package(VolPack)
 deskvox_use_package(X11)
 
@@ -305,6 +307,7 @@ set(VIRVO_SOURCES
 if(DESKVOX_USE_CUDA)
 deskvox_cuda_compiles(VIRVO_CUDA_SOURCES
   vvcudatransfunc.cu
+  vvskipraycaster.cu
 )
 endif(DESKVOX_USE_CUDA)
 

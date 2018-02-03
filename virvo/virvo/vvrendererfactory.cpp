@@ -39,6 +39,7 @@
 #include "vvsocketmap.h"
 #include "vvtcpsocket.h"
 #include "vvcompiler.h"
+#include "vvskipraycaster.h"
 
 #ifdef HAVE_CUDA
 #include "cuda/utils.h"
@@ -234,6 +235,7 @@ void init()
   rendererTypeMap["ibr"] = vvRenderer::REMOTE_IBR;
   rendererTypeMap["serbrick"] = vvRenderer::SERBRICKREND;
   rendererTypeMap["parbrick"] = vvRenderer::PARBRICKREND;
+  rendererTypeMap["skip"] = vvRenderer::SKIPRAYREND;
 
   // ray rend architectures
   rayRendArchs.push_back("cuda");
@@ -642,6 +644,10 @@ vvRenderer *create(vvVolDesc *vd, const vvRenderState &rs, const char *t, const 
   case vvRenderer::VOLPACK:
     return new vvVolPack(vd, rs);
 #endif
+#ifdef HAVE_CUDA
+  case vvRenderer::SKIPRAYREND:
+    return new vvSkipRayCaster(vd, rs);
+#endif
   case vvRenderer::RAYREND:
   {
     // if not specified, try to deduce arch from type string
@@ -750,6 +756,12 @@ bool vvRendererFactory::hasRenderer(const std::string& name, std::string const& 
   {
     return hasRenderer(vvRenderer::PARBRICKREND);
   }
+#ifdef HAVE_CUDA
+  else if (str == "skip")
+  {
+    return hasRenderer(vvRenderer::SKIPRAYREND);
+  }
+#endif
   else
   {
     return false;
@@ -787,6 +799,12 @@ bool vvRendererFactory::hasRenderer(vvRenderer::RendererType type)
 #endif
   case vvRenderer::VOLPACK:
 #ifdef HAVE_VOLPACK
+    return true;
+#else
+    return false;
+#endif
+  case vvRenderer::SKIPRAYREND:
+#ifdef HAVE_CUDA
     return true;
 #else
     return false;
