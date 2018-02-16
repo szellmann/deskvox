@@ -54,7 +54,6 @@ using namespace visionaray;
 
 #define SIMPLE    0
 #define KDTREE    1
-#define SVTPROBE  0
 
 //-------------------------------------------------------------------------------------------------
 // Summed-volume table builder
@@ -105,20 +104,6 @@ struct SVT
 
     T get_count(int f, basic_aabb<int> bounds) const
     {
-        //T count(0);
-
-        //for (int z = bounds.min.z; z < bounds.max.z; ++z)
-        //{
-        //    for (int y = bounds.min.y; y < bounds.max.y; ++y)
-        //    {
-        //        for (int x = bounds.min.x; x < bounds.max.x; ++x)
-        //        {
-        //            if (at(f,x,y,z) > 0) count++;
-        //        }
-        //    }
-        //}
-
-        //return count;
         bounds.min -= vec3i(1);
         bounds.max -= vec3i(1);
 
@@ -654,54 +639,6 @@ void KdTree::renderGL(KdTree::NodePtr const& n) const
 
 struct Kernel
 {
-    template <typename S>
-    VSNRAY_FUNC
-    bool is_homogeneous(basic_aabb<S> bounds) const
-    {
-        using TC = vector<3, S>;
-
-        return tex3D(svt, TC(bounds.max.x, bounds.max.y, bounds.max.z))
-             - tex3D(svt, TC(bounds.max.x, bounds.max.y, bounds.min.z))
-             - tex3D(svt, TC(bounds.max.x, bounds.min.y, bounds.max.z))
-             - tex3D(svt, TC(bounds.min.x, bounds.max.y, bounds.max.z))
-             + tex3D(svt, TC(bounds.min.x, bounds.min.y, bounds.max.z))
-             + tex3D(svt, TC(bounds.min.x, bounds.max.y, bounds.min.z))
-             + tex3D(svt, TC(bounds.max.x, bounds.min.y, bounds.min.z))
-             - tex3D(svt, TC(bounds.min.x, bounds.min.y, bounds.min.z)) == 0;
-    }
-
-    template <typename R, typename T>
-    VSNRAY_FUNC
-    basic_aabb<T> get_bounds(R ray, T t1, T t2) const
-    {
-        auto pos1 = ray.ori + ray.dir * t1;
-        auto pos2 = ray.ori + ray.dir * t2;
-
-        vector<3, T> coord1(
-                ( pos1.x + (bbox.size().x / 2) ) / bbox.size().x,
-                (-pos1.y + (bbox.size().y / 2) ) / bbox.size().y,
-                (-pos1.z + (bbox.size().z / 2) ) / bbox.size().z
-                );
-        vector<3, T> coord2(
-                ( pos2.x + (bbox.size().x / 2) ) / bbox.size().x,
-                (-pos2.y + (bbox.size().y / 2) ) / bbox.size().y,
-                (-pos2.z + (bbox.size().z / 2) ) / bbox.size().z
-                );
-
-        coord1 *= vector<3, T>(vox);
-        coord2 *= vector<3, T>(vox);
-
-        basic_aabb<T> bounds;
-        bounds.invalidate();
-        bounds.insert(coord1);
-        bounds.insert(coord2);
-
-        bounds.min = floor(bounds.min) - vector<3, T>(0.5);
-        bounds.max = floor(bounds.max) + vector<3, T>(0.5);
-
-        return bounds;
-    }
-
     template <typename R, typename T, typename C>
     VSNRAY_FUNC
     void integrate(R ray, T t, T tmax, C& dst) const
@@ -722,8 +659,6 @@ struct Kernel
                     (-pos.z + (bbox.size().z / 2) ) / bbox.size().z
                     );
 
-            //T voxel = tex3D(svt, tex_coord * vec3(vox)) / (float)tex3D(svt, vec3(vox)-vec3(1.0f));
-            //C color = tex1D(transfunc, voxel);
             T voxel = tex3D(volume, tex_coord);
             C color = tex1D(transfunc, voxel);
 
@@ -756,38 +691,7 @@ struct Kernel
         auto t = max(S(0.0f), hit_rec.tnear);
         auto tmax = hit_rec.tfar;
 
-#if SVTPROBE
-        float factor = 1.7f;
-
-        while (t < tmax)
-        {
-            float growth = length(bbox.max - bbox.min) / 15.0f;
-            S t_probe = min(t + growth, tmax);
-            S t_next = t_probe;
-            S dt = delta;
-
-            while (t_probe < tmax)
-            {
-                auto ray_bounds = get_bounds(ray, t, t_probe);
-
-                if (is_homogeneous(ray_bounds))
-                {
-                    t_next = t_probe;
-                    t_probe += growth;
-                    growth *= factor;
-                    dt = t_next - t;
-                }
-                else
-                {
-                    break;
-                }
-            }
-
-            integrate(ray, t, t_next, result.color, dt);
-
-            t = t_next;
-        }
-#elif KDTREE
+#ifdef KDTREE
         for (int i = 0; i < num_kd_tree_leaves; ++i)
         {
             auto kd_hit_rec = intersect(ray, kd_tree_leaves[i]);
@@ -806,7 +710,6 @@ struct Kernel
     }
 
     cuda_texture<unorm<8>, 3>::ref_type volume;
-    cuda_texture<int, 3>::ref_type svt;
     cuda_texture<vec4, 1>::ref_type transfunc;
 
     aabb bbox;
@@ -836,9 +739,6 @@ struct vvSkipRayCaster::Impl
 
 #if KDTREE
     KdTree kdtree;
-#elif SVTPROBE
-    SVT<int> svt;
-    std::vector<cuda_texture<int, 3>> svts;
 #endif
 
     cuda_texture<vec4, 1> transfunc;
@@ -986,9 +886,6 @@ void vvSkipRayCaster::renderVolumeGL()
     Kernel kernel;
 
     kernel.volume = cuda_texture<unorm<8>, 3>::ref_type(impl_->volumes[vd->getCurrentFrame()]);
-#if SVTPROBE
-    kernel.svt = cuda_texture<int, 3>::ref_type(impl_->svts[vd->getCurrentFrame()]);
-#endif
     kernel.transfunc = cuda_texture<vec4, 1>::ref_type(impl_->transfunc);
 
     kernel.bbox          = aabb(vec3(bbox.min.data()), vec3(bbox.max.data()));
@@ -1074,22 +971,6 @@ void vvSkipRayCaster::updateVolumeData()
         impl_->volumes[f].set_address_mode(Clamp);
         impl_->volumes[f].set_filter_mode(filter_mode);
     }
-
-#if SVTPROBE
-    // Recompute summed volume tables
-    impl_->svt.reset(vd, 0);
-    impl_->svts.resize(vd->frames);
-
-    for (int f = 0; f < vd->frames; ++f)
-    {
-        // svt
-        impl_->svts[f] = cuda_texture<int, 3>(vd->vox[0], vd->vox[1], vd->vox[2]);
-        impl_->svts[f].reset(impl_->svt.data(f));
-        impl_->svts[f].set_address_mode(Border);
-        impl_->svts[f].set_filter_mode(Nearest);
-        impl_->svts[f].set_normalized_coords(false);
-    }
-#endif
 }
 
 bool vvSkipRayCaster::checkParameter(vvRenderer::ParameterType param, vvParam const& value) const
