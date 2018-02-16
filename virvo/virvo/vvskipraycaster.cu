@@ -18,7 +18,6 @@
 // License along with this library (see license.txt); if not, write to the
 // Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
-#include <algorithm>
 #ifndef NDEBUG
 #include <iostream>
 #include <ostream>
@@ -280,19 +279,38 @@ struct KdTree
         aabbi bbox;
         NodePtr left  = nullptr;
         NodePtr right = nullptr;
+        int axis = -1;
+        int splitpos = -1;
         int depth;
     };
 
     template <typename Func>
-    void traverse(NodePtr const& n, Func f) const
+    void traverse(NodePtr const& n, vec3 eye, Func f) const
     {
-        f(n);
+        if (n != nullptr)
+        {
+            f(n);
 
-        if (n->left != nullptr)
-            traverse(n->left, f);
+            if (n->axis >= 0)
+            {
+                int spi = n->splitpos;
+                if (n->axis == 1 || n->axis == 2)
+                    spi = vox[n->axis] - spi - 1;
+                float splitpos = (spi - vox[n->axis]/2.f) * dist[n->axis] * scale;
 
-        if (n->right != nullptr)
-            traverse(n->right, f);
+                // TODO: puh..
+                if (n->axis == 0 && eye[n->axis] < splitpos || n->axis == 1 && eye[n->axis] >= splitpos || n->axis == 2 && eye[n->axis] >= splitpos)
+                {
+                    traverse(n->left, eye, f);
+                    traverse(n->right, eye, f);
+                }
+                else
+                {
+                    traverse(n->right, eye, f);
+                    traverse(n->left, eye, f);
+                }
+            }
+        }
     }
 
     typedef SVT<int64_t/* ?? */> svt_t;
@@ -332,7 +350,7 @@ void KdTree::reset(vvVolDesc const& vd, int channel)
     scale = vd._scale;
 
     root.reset(new Node);
-    root->bbox = aabbi(vec3i(0), vec3i(vd.vox[0], vd.vox[1], vd.vox[2]));
+    root->bbox = boundary(aabbi(vec3i(0), vec3i(vd.vox[0], vd.vox[1], vd.vox[2])));
     root->depth = 0;
     node_splitting(root);
 }
@@ -405,6 +423,10 @@ void KdTree::node_splitting(KdTree::NodePtr& n)
     // Halting criterion 2.)
     if (best_p < 0)
         return;
+
+    // Store split plane for traversal
+    n->axis = axis;
+    n->splitpos = first + dl * best_p;
 
     n->left.reset(new Node);
     n->left->bbox = lbox;
@@ -536,13 +558,9 @@ aabbi KdTree::boundary(aabbi bbox) const
 
 std::vector<aabb> KdTree::get_leaf_nodes(vec3 eye) const
 {
-    // Make it simple..
-    // Traverse the nodes and pick only leaves
-    // Sort the leaves by distance to the eye
-
     std::vector<aabb> result;
 
-    traverse(root, [&result,this](NodePtr const& n)
+    traverse(root, eye, [&result,this,eye](NodePtr const& n)
     {
         if (n->left == nullptr && n->right == nullptr)
         {
@@ -553,13 +571,10 @@ std::vector<aabb> KdTree::get_leaf_nodes(vec3 eye) const
             bbox.min.z = vox[2] - bbox.min.z - 1;
             vec3 bmin = (vec3(bbox.min) - vec3(vox)/2.f) * dist * scale;
             vec3 bmax = (vec3(bbox.max) - vec3(vox)/2.f) * dist * scale;
+//std::cout << length(aabb(bmin, bmax).center() - eye) << '\n';
+
             result.push_back(aabb(bmin, bmax));
         }
-    });
-
-    std::sort(result.begin(), result.end(), [=](aabb const& a, aabb const& b)
-    {
-        return length(a.center() - eye) < length(b.center() - eye);
     });
 
     return result;
@@ -687,25 +702,34 @@ struct Kernel
         result.color = C(0.0);
 
         auto hit_rec = intersect(ray, bbox);
+        result.hit = hit_rec.hit;
+
+        if (!hit_rec.hit)
+            return result;
 
         auto t = max(S(0.0f), hit_rec.tnear);
         auto tmax = hit_rec.tfar;
 
-#ifdef KDTREE
+#if KDTREE
         for (int i = 0; i < num_kd_tree_leaves; ++i)
         {
             auto kd_hit_rec = intersect(ray, kd_tree_leaves[i]);
 
-            auto kd_t = max(t, kd_hit_rec.tnear);
-            auto kd_tmax = min(tmax, kd_hit_rec.tfar);
+            if (kd_hit_rec.hit)
+            {
+                auto kd_t = max(t, kd_hit_rec.tnear);
+                auto kd_tmax = min(tmax, kd_hit_rec.tfar);
 
-            integrate(ray, kd_t, kd_tmax, result.color);
+                integrate(ray, kd_t, kd_tmax, result.color);
+
+                t = kd_tmax;
+            }
         }
+
 #else
         integrate(ray, t, tmax, result.color);
 #endif
 
-        result.hit = hit_rec.hit;
         return result;
     }
 
@@ -923,7 +947,8 @@ void vvSkipRayCaster::renderVolumeGL()
 #endif
 
 #if KDTREE
-    //impl_->kdtree.renderGL();
+    if (_boundaries)
+        impl_->kdtree.renderGL();
 #endif
 }
 
