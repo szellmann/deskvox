@@ -143,61 +143,10 @@ void SVT<T>::reset(vvVolDesc const& vd, Tex transfunc, int channel, Type type)
             {
                 for (int x = 0; x < width; ++x)
                 {
-                    if (type == Density)
-                    {
-                        T value = vd(f, x, y, z)[0];
-                        if (vd.bpc >= 2)
-                        {
-                            value <<= 8;
-                            value |= vd(f, x, y, z)[1];
-                        }
-                        if (vd.bpc == 4)
-                        {
-                            value <<= 8;
-                            value |= vd(f, x, y, z)[2];
-                            value <<= 8;
-                            value |= vd(f, x, y, z)[3];
-                        }
-                        if (tex1D(transfunc, vd.getChannelValue(f, x, y, z, channel)).w < 0.0001)
-                            at(f, x, y, z) = T(0);
-                        else
-                            at(f, x, y, z) = value;
-                    }
+                    if (tex1D(transfunc, vd.getChannelValue(f, x, y, z, channel)).w < 0.0001)
+                        at(f, x, y, z) = T(0);
                     else
-                    {
-                        // Build a volume that tells us for each voxel if there
-                        // there is change (yes|no) w.r.t. the direct neighbors
-
-                        float value = vd.getChannelValue(f, x, y, z, channel);
-
-                        static const float epsilon = 1e-5;
-                        int diffs = 0;
-
-                        for (int zz = z - 1; zz <= z + 1; ++zz)
-                        {
-                            if (zz < 0 || zz >= depth)
-                                continue;
-
-                            for (int yy = y - 1; yy <= y + 1; ++yy)
-                            {
-                                if (yy < 0 || yy >= height)
-                                    continue;
-
-                                for (int xx = x - 1; xx <= x + 1; ++xx)
-                                {
-                                    if (xx < 0 || xx >= width)
-                                        continue;
-
-                                    float d = value - vd.getChannelValue(f, xx, yy, zz, channel);
-
-                                    if (abs(d) >= epsilon)
-                                        ++diffs;
-                                }
-                            }
-                        }
-
-                        at(f, x, y, z) = diffs;
-                    }
+                        at(f, x, y, z) = T(1);
                 }
             }
         }
@@ -325,7 +274,7 @@ struct KdTree
         }
     }
 
-    typedef SVT<int64_t/* ?? */> svt_t;
+    typedef SVT<int64_t> svt_t;
 
     NodePtr root = nullptr;
 
