@@ -43,6 +43,7 @@
 
 #include "cuda/utils.h"
 #include "gl/util.h"
+#include "vvclock.h"
 #include "vvcudarendertarget.h"
 #include "vvskipraycaster.h"
 #include "vvtextureutil.h"
@@ -50,9 +51,9 @@
 
 using namespace visionaray;
 
-
-#define SIMPLE    0
-#define KDTREE    1
+#define FRAME_TIMING 1
+#define BUILD_TIMING 1
+#define KDTREE       1
 
 //-------------------------------------------------------------------------------------------------
 // Summed-volume table builder
@@ -889,9 +890,7 @@ void vvSkipRayCaster::renderVolumeGL()
     kernel.num_kd_tree_leaves = static_cast<int>(d_leaves.size());
 #endif
 
-#define TIMING 1
-
-#if TIMING
+#if FRAME_TIMING
     cudaEvent_t start;
     cudaEvent_t stop;
     cudaEventCreate(&start);
@@ -901,7 +900,7 @@ void vvSkipRayCaster::renderVolumeGL()
 
     impl_->sched.frame(kernel, sparams);
 
-#if TIMING
+#if FRAME_TIMING
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     float ms = 0.0f;
@@ -930,7 +929,13 @@ void vvSkipRayCaster::updateTransferFunction()
     tf_ref.reset(tf.data());
     tf_ref.set_address_mode(Clamp);
     tf_ref.set_filter_mode(Nearest);
+#ifdef BUILD_TIMING
+    vvStopwatch sw; sw.start();
+#endif
     impl_->kdtree.reset(*vd, tf_ref, 0);
+#ifdef BUILD_TIMING
+    std::cout << "kdtree construction: " << sw.getTime() << " sec.\n";
+#endif
 #endif
 }
 
