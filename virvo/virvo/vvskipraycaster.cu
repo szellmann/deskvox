@@ -63,7 +63,8 @@ struct SVT
 {
     enum Type { Density, Change };
 
-    void reset(vvVolDesc const& vd, int channel = 0, Type type = Change );
+    template <typename Tex>
+    void reset(vvVolDesc const& vd, Tex transfunc, int channel = 0, Type type = Change );
 
     T& operator()(int f, int x, int y, int z)
     {
@@ -124,7 +125,8 @@ struct SVT
 };
 
 template <typename T>
-void SVT<T>::reset(vvVolDesc const& vd, int channel, Type type)
+template <typename Tex>
+void SVT<T>::reset(vvVolDesc const& vd, Tex transfunc, int channel, Type type)
 {
     data_.resize(vd.frames * vd.vox[0] * vd.vox[1] * vd.vox[2]);
     frames = static_cast<int>(vd.frames);
@@ -144,12 +146,22 @@ void SVT<T>::reset(vvVolDesc const& vd, int channel, Type type)
                     if (type == Density)
                     {
                         T value = vd(f, x, y, z)[0];
-                        if (vd.bpc == 2)
+                        if (vd.bpc >= 2)
                         {
                             value <<= 8;
                             value |= vd(f, x, y, z)[1];
-                        }// TODO!!
-                        at(f, x, y, z) = value;
+                        }
+                        if (vd.bpc == 4)
+                        {
+                            value <<= 8;
+                            value |= vd(f, x, y, z)[2];
+                            value <<= 8;
+                            value |= vd(f, x, y, z)[3];
+                        }
+                        if (tex1D(transfunc, vd.getChannelValue(f, x, y, z, channel)).w < 0.0001)
+                            at(f, x, y, z) = T(0);
+                        else
+                            at(f, x, y, z) = value;
                     }
                     else
                     {
@@ -323,7 +335,8 @@ struct KdTree
     vec3 dist;
     float scale;
 
-    void reset(vvVolDesc const& vd, int channel = 0);
+    template <typename Tex>
+    void reset(vvVolDesc const& vd, Tex transfunc, int channel = 0);
     void node_splitting(NodePtr& n);
     aabbi boundary(aabbi bbox) const;
 
@@ -341,9 +354,10 @@ std::ostream& operator<<(std::ostream& out, KdTree::NodePtr const& n)
     return out;
 }
 
-void KdTree::reset(vvVolDesc const& vd, int channel)
+template <typename Tex>
+void KdTree::reset(vvVolDesc const& vd, Tex transfunc, int channel)
 {
-    svt.reset(vd, channel, svt_t::Density);
+    svt.reset(vd, transfunc, channel, svt_t::Density);
 
     vox = vec3i(vd.vox.x, vd.vox.y, vd.vox.z);
     dist = vec3(vd.getDist().x, vd.getDist().y, vd.getDist().z);
@@ -961,15 +975,23 @@ void vvSkipRayCaster::updateTransferFunction()
     impl_->transfunc.reset(tf.data());
     impl_->transfunc.set_address_mode(Clamp);
     impl_->transfunc.set_filter_mode(Nearest);
+
+#if KDTREE
+    texture_ref<vec4, 1> tf_ref(tf.size());
+    tf_ref.reset(tf.data());
+    tf_ref.set_address_mode(Clamp);
+    tf_ref.set_filter_mode(Nearest);
+    impl_->kdtree.reset(*vd, tf_ref, 0);
+#endif
 }
 
 void vvSkipRayCaster::updateVolumeData()
 {
     vvRenderer::updateVolumeData();
 
-#if KDTREE
-    impl_->kdtree.reset(*vd, 0);
-#endif
+//#if KDTREE
+//    impl_->kdtree.reset(*vd, 0);
+//#endif
 
 
     // Init GPU textures
