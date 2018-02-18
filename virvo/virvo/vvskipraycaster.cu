@@ -62,10 +62,10 @@ using namespace visionaray;
 template <typename T>
 struct SVT
 {
-    enum Type { Density, Change };
+    void reset(vvVolDesc const& vd, int channel = 0);
 
     template <typename Tex>
-    void reset(vvVolDesc const& vd, Tex transfunc, int channel = 0, Type type = Change );
+    void build(Tex transfunc);
 
     T& operator()(int f, int x, int y, int z)
     {
@@ -118,6 +118,9 @@ struct SVT
              - border_at(f, bounds.min.x, bounds.min.y, bounds.min.z);
     }
 
+    // Channel values from volume description
+    std::vector<float> voxels_;
+    // SVT array
     std::vector<T> data_;
     int frames;
     int width;
@@ -126,9 +129,9 @@ struct SVT
 };
 
 template <typename T>
-template <typename Tex>
-void SVT<T>::reset(vvVolDesc const& vd, Tex transfunc, int channel, Type type)
+void SVT<T>::reset(vvVolDesc const& vd, int channel)
 {
+    voxels_.resize(vd.frames * vd.vox[0] * vd.vox[1] * vd.vox[2]);
     data_.resize(vd.frames * vd.vox[0] * vd.vox[1] * vd.vox[2]);
     frames = static_cast<int>(vd.frames);
     width  = static_cast<int>(vd.vox[0]);
@@ -144,17 +147,36 @@ void SVT<T>::reset(vvVolDesc const& vd, Tex transfunc, int channel, Type type)
             {
                 for (int x = 0; x < width; ++x)
                 {
-                    if (tex1D(transfunc, vd.getChannelValue(f, x, y, z, channel)).w < 0.0001)
+                    size_t index = f * width * height * depth + z * width * height + y * width + x;
+                    voxels_[index] = vd.getChannelValue(f, x, y, z, channel);
+                }
+            }
+        }
+    }
+}
+
+template <typename T>
+template <typename Tex>
+void SVT<T>::build(Tex transfunc)
+{
+    for (int f = 0; f < frames; ++f)
+    {
+        for (int z = 0; z < depth; ++z)
+        {
+            for (int y = 0; y < height; ++y)
+            {
+                for (int x = 0; x < width; ++x)
+                {
+                    size_t index = f * width * height * depth + z * width * height + y * width + x;
+                    if (tex1D(transfunc, voxels_[index]).w < 0.0001)
                         at(f, x, y, z) = T(0);
                     else
                         at(f, x, y, z) = T(1);
                 }
             }
         }
-    }
 
-    for (int f = 0; f < frames; ++f)
-    {
+
         // Build summed volume table
 
         // Init 0-border voxel
@@ -285,8 +307,11 @@ struct KdTree
     vec3 dist;
     float scale;
 
+    void updateVolume(vvVolDesc const& vd, int channel = 0);
+
     template <typename Tex>
-    void reset(vvVolDesc const& vd, Tex transfunc, int channel = 0);
+    void updateTransfunc(Tex transfunc);
+
     void node_splitting(NodePtr& n);
     aabbi boundary(aabbi bbox) const;
 
@@ -304,17 +329,22 @@ std::ostream& operator<<(std::ostream& out, KdTree::NodePtr const& n)
     return out;
 }
 
-template <typename Tex>
-void KdTree::reset(vvVolDesc const& vd, Tex transfunc, int channel)
+void KdTree::updateVolume(vvVolDesc const& vd, int channel)
 {
-    svt.reset(vd, transfunc, channel, svt_t::Density);
+    svt.reset(vd, channel);
 
     vox = vec3i(vd.vox.x, vd.vox.y, vd.vox.z);
     dist = vec3(vd.getDist().x, vd.getDist().y, vd.getDist().z);
     scale = vd._scale;
+}
+
+template <typename Tex>
+void KdTree::updateTransfunc(Tex transfunc)
+{
+    svt.build(transfunc);
 
     root.reset(new Node);
-    root->bbox = boundary(aabbi(vec3i(0), vec3i(vd.vox[0], vd.vox[1], vd.vox[2])));
+    root->bbox = boundary(aabbi(vec3i(0), vec3i(vox[0], vox[1], vox[2])));
     root->depth = 0;
     node_splitting(root);
 }
@@ -932,7 +962,7 @@ void vvSkipRayCaster::updateTransferFunction()
 #ifdef BUILD_TIMING
     vvStopwatch sw; sw.start();
 #endif
-    impl_->kdtree.reset(*vd, tf_ref, 0);
+    impl_->kdtree.updateTransfunc(tf_ref);
 #ifdef BUILD_TIMING
     std::cout << "kdtree construction: " << sw.getTime() << " sec.\n";
 #endif
@@ -943,9 +973,9 @@ void vvSkipRayCaster::updateVolumeData()
 {
     vvRenderer::updateVolumeData();
 
-//#if KDTREE
-//    impl_->kdtree.reset(*vd, 0);
-//#endif
+#if KDTREE
+    impl_->kdtree.updateVolume(*vd, 0);
+#endif
 
 
     // Init GPU textures
