@@ -341,12 +341,24 @@ void KdTree::updateVolume(vvVolDesc const& vd, int channel)
 template <typename Tex>
 void KdTree::updateTransfunc(Tex transfunc)
 {
+#ifdef BUILD_TIMING
+    vvStopwatch sw; sw.start();
+#endif
     svt.build(transfunc);
+#ifdef BUILD_TIMING
+    std::cout << std::fixed << std::setprecision(3) << "svt update: " << sw.getTime() << " sec.\n";
+#endif
 
+#ifdef BUILD_TIMING
+    sw.start();
+#endif
     root.reset(new Node);
     root->bbox = boundary(aabbi(vec3i(0), vec3i(vox[0], vox[1], vox[2])));
     root->depth = 0;
     node_splitting(root);
+#ifdef BUILD_TIMING
+    std::cout << "splitting: " << sw.getTime() << " sec.\n";
+#endif
 }
 
 void KdTree::node_splitting(KdTree::NodePtr& n)
