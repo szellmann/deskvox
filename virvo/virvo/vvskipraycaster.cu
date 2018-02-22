@@ -62,7 +62,7 @@ using namespace visionaray;
 template <typename T>
 struct SVT
 {
-    void reset(vvVolDesc const& vd, int channel = 0);
+    void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
     template <typename Tex>
     void build(Tex transfunc);
@@ -129,14 +129,14 @@ struct SVT
 };
 
 template <typename T>
-void SVT<T>::reset(vvVolDesc const& vd, int channel)
+void SVT<T>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 {
-    voxels_.resize(vd.frames * vd.vox[0] * vd.vox[1] * vd.vox[2]);
-    data_.resize(vd.frames * vd.vox[0] * vd.vox[1] * vd.vox[2]);
+    voxels_.resize(vd.frames * bbox.size().x * bbox.size().y * bbox.size().z);
+    data_.resize(vd.frames * bbox.size().x * bbox.size().y * bbox.size().z);
     frames = static_cast<int>(vd.frames);
-    width  = static_cast<int>(vd.vox[0]);
-    height = static_cast<int>(vd.vox[1]);
-    depth  = static_cast<int>(vd.vox[2]);
+    width  = bbox.size().x;
+    height = bbox.size().y;
+    depth  = bbox.size().z;
 
 
     for (int f = 0; f < frames; ++f)
@@ -148,7 +148,11 @@ void SVT<T>::reset(vvVolDesc const& vd, int channel)
                 for (int x = 0; x < width; ++x)
                 {
                     size_t index = f * width * height * depth + z * width * height + y * width + x;
-                    voxels_[index] = vd.getChannelValue(f, x, y, z, channel);
+                    voxels_[index] = vd.getChannelValue(f,
+                                bbox.min.x + x,
+                                bbox.min.y + y,
+                                bbox.min.z + z,
+                                channel);
                 }
             }
         }
@@ -297,11 +301,13 @@ struct KdTree
         }
     }
 
-    typedef SVT<int64_t> svt_t;
+    typedef SVT<uint16_t> svt_t;
+    vec3i bricksize = vec3i(32, 32, 32);
+    vec3i num_svts;
+    std::vector<svt_t> svts;
+    uint64_t get_count(int frame, aabbi bounds) const;
 
     NodePtr root = nullptr;
-
-    svt_t svt;
 
     vec3i vox;
     vec3 dist;
@@ -323,19 +329,76 @@ struct KdTree
     void renderGL(NodePtr const& n) const;
 };
 
-std::ostream& operator<<(std::ostream& out, KdTree::NodePtr const& n)
+uint64_t KdTree::get_count(int frame, aabbi bounds) const
 {
-    out << n->bbox.min << ' ' << n->bbox.max << ' ' << n->depth << '\n';
-    return out;
+    vec3i min_brick = bounds.min / bricksize;
+    vec3i min_bpos = bounds.min - min_brick * bricksize;
+
+    vec3i max_brick = bounds.max / bricksize;
+    vec3i max_bpos = bounds.max - max_brick * bricksize;
+
+    uint64_t count = 0;
+
+    for (int bz = min_brick.z; bz <= max_brick.z; ++bz)
+    {
+        int minz = bz == min_brick.z ? min_bpos.z : 0;
+        int maxz = bz == max_brick.z ? max_bpos.z : bricksize.z;
+
+        for (int by = min_brick.y; by <= max_brick.y; ++by)
+        {
+            int miny = by == min_brick.y ? min_bpos.y : 0;
+            int maxy = by == max_brick.y ? max_bpos.y : bricksize.y;
+
+            for (int bx = min_brick.x; bx <= max_brick.x; ++bx)
+            {
+                int minx = bx == min_brick.x ? min_bpos.x : 0;
+                int maxx = bx == max_brick.x ? max_bpos.x : bricksize.x;
+
+                // 32**3 bricks can store 16 bit values, but the
+                // overall count will generally not fit in 16 bits
+                count += static_cast<uint64_t>(svts[bz * num_svts.x * num_svts.y + by * num_svts.x + bx].get_count(
+                        frame, aabbi(vec3i(minx, miny, minz), vec3i(maxx, maxy, maxz))));
+            }
+        }
+
+    }
+
+    return count;
 }
 
 void KdTree::updateVolume(vvVolDesc const& vd, int channel)
 {
-    svt.reset(vd, channel);
-
     vox = vec3i(vd.vox.x, vd.vox.y, vd.vox.z);
     dist = vec3(vd.getDist().x, vd.getDist().y, vd.getDist().z);
     scale = vd._scale;
+
+    num_svts = vec3i(div_up(vox.x, bricksize.x), div_up(vox.y, bricksize.y), div_up(vox.z, bricksize.z));
+
+    svts.resize(num_svts.x * num_svts.y * num_svts.z);
+
+    int bz = 0;
+    for (int z = 0; z < num_svts.z; ++z)
+    {
+        int by = 0;
+        for (int y = 0; y < num_svts.y; ++y)
+        {
+            int bx = 0;
+            for (int x = 0; x < num_svts.x; ++x)
+            {
+                vec3i bmin(bx, by, bz);
+                vec3i bmax(min(vox.x, bx + bricksize.x),
+                           min(vox.y, by + bricksize.y),
+                           min(vox.z, bz + bricksize.z));
+                svts[z * num_svts.x * num_svts.y + y * num_svts.x + x].reset(vd, aabbi(bmin, bmax), channel);
+
+                bx += bricksize.x;
+            }
+
+            by += bricksize.y;
+        }
+
+        bz += bricksize.z;
+    }
 }
 
 template <typename Tex>
@@ -344,7 +407,9 @@ void KdTree::updateTransfunc(Tex transfunc)
 #ifdef BUILD_TIMING
     vvStopwatch sw; sw.start();
 #endif
-    svt.build(transfunc);
+    #pragma omp parallel for
+    for (size_t i = 0; i < svts.size(); ++i)
+        svts[i].build(transfunc);
 #ifdef BUILD_TIMING
     std::cout << std::fixed << std::setprecision(3) << "svt update: " << sw.getTime() << " sec.\n";
 #endif
@@ -452,8 +517,11 @@ aabbi KdTree::boundary(aabbi bbox) const
 
     // Search for the minimal volume bounding box
     // that contains #voxels contained in bbox!
-    int64_t voxels = svt.get_count(0, bounds);
+    uint16_t voxels = get_count(0, bounds);
 
+
+    vec3i minbrick = bounds.min / bricksize;
+    vec3i maxbrick = bounds.max / bricksize;
 
     // X boundary from left
     for (int x = bounds.min.x; x < bounds.max.x; ++x)
@@ -461,7 +529,41 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi lbox = bounds;
         lbox.min.x = x;
 
-        if (svt.get_count(0/*frame*/, lbox) == voxels)
+        if (get_count(0/*frame*/, lbox) == voxels)
+        {
+            bounds = lbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Y boundary from left
+    for (int y = bounds.min.y; y < bounds.max.y; ++y)
+    {
+        aabbi lbox = bounds;
+        lbox.min.y = y;
+
+        if (get_count(0/*frame*/, lbox) == voxels)
+        {
+            bounds = lbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Z boundary from left
+    for (int z = bounds.min.z; z < bounds.max.z; ++z)
+    {
+        aabbi lbox = bounds;
+        lbox.min.z = z;
+
+        if (get_count(0/*frame*/, lbox) == voxels)
         {
             bounds = lbox;
         }
@@ -478,26 +580,9 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi rbox = bounds;
         rbox.max.x = x;
 
-        if (svt.get_count(0/*frame*/, rbox) == voxels)
+        if (get_count(0/*frame*/, rbox) == voxels)
         {
             bounds = rbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-    // Y boundary from left
-    for (int y = bounds.min.y; y < bounds.max.y; ++y)
-    {
-        aabbi lbox = bounds;
-        lbox.min.y = y;
-
-        if (svt.get_count(0/*frame*/, lbox) == voxels)
-        {
-            bounds = lbox;
         }
         else
         {
@@ -512,26 +597,9 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi rbox = bounds;
         rbox.max.y = y;
 
-        if (svt.get_count(0/*frame*/, rbox) == voxels)
+        if (get_count(0/*frame*/, rbox) == voxels)
         {
             bounds = rbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-    // Z boundary from left
-    for (int z = bounds.min.z; z < bounds.max.z; ++z)
-    {
-        aabbi lbox = bounds;
-        lbox.min.z = z;
-
-        if (svt.get_count(0/*frame*/, lbox) == voxels)
-        {
-            bounds = lbox;
         }
         else
         {
@@ -546,7 +614,7 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi rbox = bounds;
         rbox.max.z = z;
 
-        if (svt.get_count(0/*frame*/, rbox) == voxels)
+        if (get_count(0/*frame*/, rbox) == voxels)
         {
             bounds = rbox;
         }
