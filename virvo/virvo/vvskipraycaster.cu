@@ -62,98 +62,100 @@ using namespace visionaray;
 template <typename T>
 struct SVT
 {
+    void reset(aabbi bbox);
     void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
     template <typename Tex>
     void build(Tex transfunc);
 
-    T& operator()(int f, int x, int y, int z)
+    T& operator()(int x, int y, int z)
     {
-        return data_[f * width * height * depth + z * width * height + y * width + x];
+        return data_[z * width * height + y * width + x];
     }
 
-    T& at(int f, int x, int y, int z)
+    T& at(int x, int y, int z)
     {
-        return data_[f * width * height * depth + z * width * height + y * width + x];
+        return data_[z * width * height + y * width + x];
     }
 
-    T const& at(int f, int x, int y, int z) const
+    T const& at(int x, int y, int z) const
     {
-        return data_[f * width * height * depth + z * width * height + y * width + x];
+        return data_[z * width * height + y * width + x];
     }
 
-    T border_at(int f, int x, int y, int z) const
+    T border_at(int x, int y, int z) const
     {
         if (x < 0 || y < 0 || z < 0)
             return 0;
 
-        return data_[f * width * height * depth + z * width * height + y * width + x];
+        return data_[z * width * height + y * width + x];
     }
 
-    T const* data(int f) const
+    T* data()
     {
-        return data_.data() + f * width * height * depth;
+        return data_.data();
     }
 
-    vec2 minmax_element(int f) const
+    T const* data() const
     {
-        auto first = data_.begin() + f * width * height * depth;
-        auto last = data_.end() + f * width * height * depth;
-        auto mm = std::minmax_element(first, last);
-        return vec2(*mm.first, *mm.second);
+        return data_.data();
     }
 
-    T get_count(int f, basic_aabb<int> bounds) const
+    T get_count(basic_aabb<int> bounds) const
     {
         bounds.min -= vec3i(1);
         bounds.max -= vec3i(1);
 
-        return border_at(f, bounds.max.x, bounds.max.y, bounds.max.z)
-             - border_at(f, bounds.max.x, bounds.max.y, bounds.min.z)
-             - border_at(f, bounds.max.x, bounds.min.y, bounds.max.z)
-             - border_at(f, bounds.min.x, bounds.max.y, bounds.max.z)
-             + border_at(f, bounds.min.x, bounds.min.y, bounds.max.z)
-             + border_at(f, bounds.min.x, bounds.max.y, bounds.min.z)
-             + border_at(f, bounds.max.x, bounds.min.y, bounds.min.z)
-             - border_at(f, bounds.min.x, bounds.min.y, bounds.min.z);
+        return border_at(bounds.max.x, bounds.max.y, bounds.max.z)
+             - border_at(bounds.max.x, bounds.max.y, bounds.min.z)
+             - border_at(bounds.max.x, bounds.min.y, bounds.max.z)
+             - border_at(bounds.min.x, bounds.max.y, bounds.max.z)
+             + border_at(bounds.min.x, bounds.min.y, bounds.max.z)
+             + border_at(bounds.min.x, bounds.max.y, bounds.min.z)
+             + border_at(bounds.max.x, bounds.min.y, bounds.min.z)
+             - border_at(bounds.min.x, bounds.min.y, bounds.min.z);
     }
 
     // Channel values from volume description
     std::vector<float> voxels_;
     // SVT array
     std::vector<T> data_;
-    int frames;
     int width;
     int height;
     int depth;
 };
 
 template <typename T>
+void SVT<T>::reset(aabbi bbox)
+{
+    data_.resize(bbox.size().x * bbox.size().y * bbox.size().z);
+    width  = bbox.size().x;
+    height = bbox.size().y;
+    depth  = bbox.size().z;
+}
+
+template <typename T>
 void SVT<T>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 {
-    voxels_.resize(vd.frames * bbox.size().x * bbox.size().y * bbox.size().z);
-    data_.resize(vd.frames * bbox.size().x * bbox.size().y * bbox.size().z);
-    frames = static_cast<int>(vd.frames);
+    voxels_.resize(bbox.size().x * bbox.size().y * bbox.size().z);
+    data_.resize(bbox.size().x * bbox.size().y * bbox.size().z);
     width  = bbox.size().x;
     height = bbox.size().y;
     depth  = bbox.size().z;
 
 
-    for (int f = 0; f < frames; ++f)
+    for (int z = 0; z < depth; ++z)
     {
-        for (int z = 0; z < depth; ++z)
+        for (int y = 0; y < height; ++y)
         {
-            for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
             {
-                for (int x = 0; x < width; ++x)
-                {
-                    size_t index = f * width * height * depth + z * width * height + y * width + x;
-                    voxels_[index] = vd.getChannelValue(f,
-                                bbox.min.x + x,
-                                bbox.min.y + y,
-                                bbox.min.z + z,
-                                channel);
-                }
+                size_t index = z * width * height + y * width + x;
+                voxels_[index] = vd.getChannelValue(0,
+                            bbox.min.x + x,
+                            bbox.min.y + y,
+                            bbox.min.z + z,
+                            channel);
             }
         }
     }
@@ -163,90 +165,87 @@ template <typename T>
 template <typename Tex>
 void SVT<T>::build(Tex transfunc)
 {
-    for (int f = 0; f < frames; ++f)
+    for (int z = 0; z < depth; ++z)
     {
-        for (int z = 0; z < depth; ++z)
+        for (int y = 0; y < height; ++y)
         {
-            for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
             {
-                for (int x = 0; x < width; ++x)
-                {
-                    size_t index = f * width * height * depth + z * width * height + y * width + x;
-                    if (tex1D(transfunc, voxels_[index]).w < 0.0001)
-                        at(f, x, y, z) = T(0);
-                    else
-                        at(f, x, y, z) = T(1);
-                }
+                size_t index = z * width * height + y * width + x;
+                if (tex1D(transfunc, voxels_[index]).w < 0.0001)
+                    at(x, y, z) = T(0);
+                else
+                    at(x, y, z) = T(1);
             }
         }
+    }
 
 
-        // Build summed volume table
+    // Build summed volume table
 
-        // Init 0-border voxel
-        //at(f, 0, 0, 0) = at(f, 0, 0, 0);
+    // Init 0-border voxel
+    //at(0, 0, 0) = at(0, 0, 0);
 
-        // Init 0-border edges (prefix sum)
+    // Init 0-border edges (prefix sum)
+    for (int x=1; x<width; ++x)
+    {
+        at(x, 0, 0) = at(x, 0, 0) + at(x-1, 0, 0);
+    }
+
+    for (int y=1; y<height; ++y)
+    {
+        at(0, y, 0) = at(0, y, 0) + at(0, y-1, 0);
+    }
+
+    for (int z=1; z<depth; ++z)
+    {
+        at(0, 0, z) = at(0, 0, z) + at(0, 0, z-1);
+    }
+
+
+    // Init 0-border planes (summed-area tables)
+    for (int y=1; y<height; ++y)
+    {
         for (int x=1; x<width; ++x)
         {
-            at(f, x, 0, 0) = at(f, x, 0, 0) + at(f, x-1, 0, 0);
+            at(x, y, 0) = at(x, y, 0)
+                + at(x-1, y, 0) + at(x, y-1, 0)
+                - at(x-1, y-1, 0);
         }
+    }
 
+    for (int z=1; z<depth; ++z)
+    {
         for (int y=1; y<height; ++y)
         {
-            at(f, 0, y, 0) = at(f, 0, y, 0) + at(f, 0, y-1, 0);
+            at(0, y, z) = at(0, y, z)
+                + at(0, y-1, z) + at(0, y, z-1)
+                - at(0, y-1, z-1);
         }
+    }
 
+    for (int x=1; x<width; ++x)
+    {
         for (int z=1; z<depth; ++z)
         {
-            at(f, 0, 0, z) = at(f, 0, 0, z) + at(f, 0, 0, z-1);
+            at(x, 0, z) = at(x, 0, z)
+                + at(x-1, 0, z) + at(x, 0, z-1)
+                - at(x-1, 0, z-1);
         }
+    }
 
 
-        // Init 0-border planes (summed-area tables)
+    // Build up SVT
+    for (int z=1; z<depth; ++z)
+    {
         for (int y=1; y<height; ++y)
         {
             for (int x=1; x<width; ++x)
             {
-                at(f, x, y, 0) = at(f, x, y, 0)
-                    + at(f, x-1, y, 0) + at(f, x, y-1, 0)
-                    - at(f, x-1, y-1, 0);
-            }
-        }
-
-        for (int z=1; z<depth; ++z)
-        {
-            for (int y=1; y<height; ++y)
-            {
-                at(f, 0, y, z) = at(f, 0, y, z)
-                    + at(f, 0, y-1, z) + at(f, 0, y, z-1)
-                    - at(f, 0, y-1, z-1);
-            }
-        }
-
-        for (int x=1; x<width; ++x)
-        {
-            for (int z=1; z<depth; ++z)
-            {
-                at(f, x, 0, z) = at(f, x, 0, z)
-                    + at(f, x-1, 0, z) + at(f, x, 0, z-1)
-                    - at(f, x-1, 0, z-1);
-            }
-        }
-
-
-        // Build up SVT
-        for (int z=1; z<depth; ++z)
-        {
-            for (int y=1; y<height; ++y)
-            {
-                for (int x=1; x<width; ++x)
-                {
-                    at(f, x, y, z) = at(f, x, y, z) + at(f, x-1, y-1, z-1)
-                        + at(f, x-1, y, z) - at(f, x, y-1, z-1)
-                        + at(f, x, y-1, z) - at(f, x-1, y, z-1)
-                        + at(f, x, y, z-1) - at(f, x-1, y-1, z);
-                }
+                at(x, y, z) = at(x, y, z) + at(x-1, y-1, z-1)
+                    + at(x-1, y, z) - at(x, y-1, z-1)
+                    + at(x, y-1, z) - at(x-1, y, z-1)
+                    + at(x, y, z-1) - at(x-1, y-1, z);
             }
         }
     }
@@ -259,40 +258,63 @@ void SVT<T>::build(Tex transfunc)
 
 struct HSVT
 {
-    typedef SVT<uint16_t> svt_t;
+    typedef SVT<uint16_t> svt_t; // TODO: higher levels need more precision!!!!!
 
     void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
     template <typename Tex>
     void build(Tex transfunc);
 
-    uint64_t get_count(int frame, aabbi bounds) const;
+    uint64_t get_count(aabbi bounds) const;
 
     vec3i bricksize = vec3i(32, 32, 32);
-    vec3i num_svts;
-    std::vector<svt_t> svts;
+
+    // Per level svt count (0 == bottom!)
+    std::vector<vec3i> num_svts;
+    // SVTs per level (0 == bottom!)
+    std::vector<std::vector<svt_t>> svts;
 };
 
 void HSVT::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 {
-    num_svts = vec3i(div_up(bbox.max.x, bricksize.x), div_up(bbox.max.y, bricksize.y), div_up(bbox.max.z, bricksize.z));
+    vec3i num(div_up(bbox.max.x, bricksize.x),
+              div_up(bbox.max.y, bricksize.y),
+              div_up(bbox.max.z, bricksize.z));
 
-    svts.resize(num_svts.x * num_svts.y * num_svts.z);
+    num_svts.push_back(num);
+
+    while (num.x > 1 || num.y > 1 || num.z > 1)
+    {
+        num = vec3i(div_up(num_svts.back().x, bricksize.x),
+                    div_up(num_svts.back().y, bricksize.y),
+                    div_up(num_svts.back().z, bricksize.z));
+        num_svts.push_back(num);
+    }
+
+    svts.resize(num_svts.size());
+
+    for (size_t i = 0; i < num_svts.size(); ++i)
+    {
+        svts[i].resize(num_svts[i].x * num_svts[i].y * num_svts[i].z);
+    }
+
+
+    // Fill level 0 with volume channel values
 
     int bz = 0;
-    for (int z = 0; z < num_svts.z; ++z)
+    for (int z = 0; z < num_svts[0].z; ++z)
     {
         int by = 0;
-        for (int y = 0; y < num_svts.y; ++y)
+        for (int y = 0; y < num_svts[0].y; ++y)
         {
             int bx = 0;
-            for (int x = 0; x < num_svts.x; ++x)
+            for (int x = 0; x < num_svts[0].x; ++x)
             {
                 vec3i bmin(bx, by, bz);
                 vec3i bmax(min(bbox.max.x, bx + bricksize.x),
                            min(bbox.max.y, by + bricksize.y),
                            min(bbox.max.z, bz + bricksize.z));
-                svts[z * num_svts.x * num_svts.y + y * num_svts.x + x].reset(vd, aabbi(bmin, bmax), channel);
+                svts[0][z * num_svts[0].x * num_svts[0].y + y * num_svts[0].x + x].reset(vd, aabbi(bmin, bmax), channel);
 
                 bx += bricksize.x;
             }
@@ -302,18 +324,53 @@ void HSVT::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 
         bz += bricksize.z;
     }
+
+
+    // No channel values stored at higher levels
+
+    for (size_t l = 1; l < svts.size(); ++l)
+    {
+        for (size_t i = 0; i < svts[l].size(); ++i)
+        {
+            svts[l][i].reset(aabbi(vec3i(0), bricksize));
+        }
+    }
 }
 
 template <typename Tex>
 void HSVT::build(Tex transfunc)
 {
-    #pragma omp parallel for
-    for (size_t i = 0; i < svts.size(); ++i)
-        svts[i].build(transfunc);
+    for (size_t l = 0; l < svts.size(); ++l)
+    {
+        if (l > 0)
+        {
+            for (size_t i = 0; i < svts[l-1].size(); ++i)
+            {
+                // Index of svt on level l
+                size_t index1 = i / (bricksize.x * bricksize.y * bricksize.z);
+
+                // Index in svt
+                size_t index2 = i % (bricksize.x * bricksize.y * bricksize.z);
+
+                svts[l][index1].data()[index2] = svts[l-1][i].get_count(
+                        aabbi(vec3i(0), bricksize));
+            }
+        }
+
+        if (l == 0) { //TODO!!
+        #pragma omp parallel for
+        for (size_t i = 0; i < svts[l].size(); ++i)
+        {
+            svts[l][i].build(transfunc);
+        }}
+    }
+
+    exit(0);
 }
 
-uint64_t HSVT::get_count(int frame, aabbi bounds) const
+uint64_t HSVT::get_count(aabbi bounds) const
 {
+#if 0
     vec3i min_brick = bounds.min / bricksize;
     vec3i min_bpos = bounds.min - min_brick * bricksize;
 
@@ -340,13 +397,14 @@ uint64_t HSVT::get_count(int frame, aabbi bounds) const
                 // 32**3 bricks can store 16 bit values, but the
                 // overall count will generally not fit in 16 bits
                 count += static_cast<uint64_t>(svts[bz * num_svts.x * num_svts.y + by * num_svts.x + bx].get_count(
-                        frame, aabbi(vec3i(minx, miny, minz), vec3i(maxx, maxy, maxz))));
+                        aabbi(vec3i(minx, miny, minz), vec3i(maxx, maxy, maxz))));
             }
         }
 
     }
 
     return count;
+#endif
 }
 
 
@@ -545,7 +603,7 @@ aabbi KdTree::boundary(aabbi bbox) const
 
     // Search for the minimal volume bounding box
     // that contains #voxels contained in bbox!
-    uint16_t voxels = hsvt.get_count(0, bounds);
+    uint16_t voxels = hsvt.get_count(bounds);
 
 
     // X boundary from left
@@ -554,7 +612,7 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi lbox = bounds;
         lbox.min.x = x;
 
-        if (hsvt.get_count(0/*frame*/, lbox) == voxels)
+        if (hsvt.get_count(lbox) == voxels)
         {
             bounds = lbox;
         }
@@ -571,7 +629,7 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi lbox = bounds;
         lbox.min.y = y;
 
-        if (hsvt.get_count(0/*frame*/, lbox) == voxels)
+        if (hsvt.get_count(lbox) == voxels)
         {
             bounds = lbox;
         }
@@ -588,7 +646,7 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi lbox = bounds;
         lbox.min.z = z;
 
-        if (hsvt.get_count(0/*frame*/, lbox) == voxels)
+        if (hsvt.get_count(lbox) == voxels)
         {
             bounds = lbox;
         }
@@ -605,7 +663,7 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi rbox = bounds;
         rbox.max.x = x;
 
-        if (hsvt.get_count(0/*frame*/, rbox) == voxels)
+        if (hsvt.get_count(rbox) == voxels)
         {
             bounds = rbox;
         }
@@ -622,7 +680,7 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi rbox = bounds;
         rbox.max.y = y;
 
-        if (hsvt.get_count(0/*frame*/, rbox) == voxels)
+        if (hsvt.get_count(rbox) == voxels)
         {
             bounds = rbox;
         }
@@ -639,7 +697,7 @@ aabbi KdTree::boundary(aabbi bbox) const
         aabbi rbox = bounds;
         rbox.max.z = z;
 
-        if (hsvt.get_count(0/*frame*/, rbox) == voxels)
+        if (hsvt.get_count(rbox) == voxels)
         {
             bounds = rbox;
         }
