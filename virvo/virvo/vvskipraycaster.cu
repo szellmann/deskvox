@@ -51,7 +51,7 @@
 
 using namespace visionaray;
 
-#define FRAME_TIMING 1
+#define FRAME_TIMING 0
 #define BUILD_TIMING 1
 #define KDTREE       1
 
@@ -66,7 +66,9 @@ struct SVT
     void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
     template <typename Tex>
-    void build(Tex transfunc);
+    void apply(Tex transfunc);
+
+    void build();
 
     T& operator()(int x, int y, int z)
     {
@@ -89,6 +91,11 @@ struct SVT
             return 0;
 
         return data_[z * width * height + y * width + x];
+    }
+
+    T last() const
+    {
+        return data_.back();
     }
 
     T* data()
@@ -163,7 +170,7 @@ void SVT<T>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 
 template <typename T>
 template <typename Tex>
-void SVT<T>::build(Tex transfunc)
+void SVT<T>::apply(Tex transfunc)
 {
     for (int z = 0; z < depth; ++z)
     {
@@ -179,8 +186,11 @@ void SVT<T>::build(Tex transfunc)
             }
         }
     }
+}
 
-
+template <typename T>
+void SVT<T>::build()
+{
     // Build summed volume table
 
     // Init 0-border voxel
@@ -253,12 +263,14 @@ void SVT<T>::build(Tex transfunc)
 
 
 //-------------------------------------------------------------------------------------------------
-// Hierarchical summed-volume table
+// n-level SVT
 //
 
-struct HSVT
+template <int N = 3>
+struct NLSVT
 {
-    typedef SVT<uint16_t> svt_t; // TODO: higher levels need more precision!!!!!
+    typedef SVT<uint16_t> svt16_t;
+    typedef SVT<uint32_t> svt32_t;
 
     void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
@@ -270,33 +282,32 @@ struct HSVT
     vec3i bricksize = vec3i(32, 32, 32);
 
     // Per level svt count (0 == bottom!)
-    std::vector<vec3i> num_svts;
-    // SVTs per level (0 == bottom!)
-    std::vector<std::vector<svt_t>> svts;
+    vec3i num_svts[N];
+    // Bottom level svt (16-bit!)
+    std::vector<svt16_t> svts0;
+    // Higher precision for higher levels
+    std::vector<svt32_t> svts1;
+    std::vector<svt32_t> svts2;
 };
 
-void HSVT::reset(vvVolDesc const& vd, aabbi bbox, int channel)
+template <int N>
+void NLSVT<N>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 {
-    vec3i num(div_up(bbox.max.x, bricksize.x),
-              div_up(bbox.max.y, bricksize.y),
-              div_up(bbox.max.z, bricksize.z));
+    num_svts[0] = vec3i(div_up(bbox.max.x, bricksize.x),
+                        div_up(bbox.max.y, bricksize.y),
+                        div_up(bbox.max.z, bricksize.z));
 
-    num_svts.push_back(num);
-
-    while (num.x > 1 || num.y > 1 || num.z > 1)
+    for (int n = 1; n < N; ++n)
     {
-        num = vec3i(div_up(num_svts.back().x, bricksize.x),
-                    div_up(num_svts.back().y, bricksize.y),
-                    div_up(num_svts.back().z, bricksize.z));
-        num_svts.push_back(num);
+        num_svts[n] = vec3i(div_up(num_svts[n-1].x, bricksize.x),
+                            div_up(num_svts[n-1].y, bricksize.y),
+                            div_up(num_svts[n-1].z, bricksize.z));
     }
 
-    svts.resize(num_svts.size());
-
-    for (size_t i = 0; i < num_svts.size(); ++i)
-    {
-        svts[i].resize(num_svts[i].x * num_svts[i].y * num_svts[i].z);
-    }
+    svts0.resize(num_svts[0].x * num_svts[0].y * num_svts[0].z);
+    svts1.resize(num_svts[1].x * num_svts[1].y * num_svts[1].z);
+    svts2.resize(num_svts[2].x * num_svts[2].y * num_svts[2].z);
+    //...
 
 
     // Fill level 0 with volume channel values
@@ -314,7 +325,7 @@ void HSVT::reset(vvVolDesc const& vd, aabbi bbox, int channel)
                 vec3i bmax(min(bbox.max.x, bx + bricksize.x),
                            min(bbox.max.y, by + bricksize.y),
                            min(bbox.max.z, bz + bricksize.z));
-                svts[0][z * num_svts[0].x * num_svts[0].y + y * num_svts[0].x + x].reset(vd, aabbi(bmin, bmax), channel);
+                svts0[z * num_svts[0].x * num_svts[0].y + y * num_svts[0].x + x].reset(vd, aabbi(bmin, bmax), channel);
 
                 bx += bricksize.x;
             }
@@ -327,50 +338,66 @@ void HSVT::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 
 
     // No channel values stored at higher levels
-
-    for (size_t l = 1; l < svts.size(); ++l)
-    {
-        for (size_t i = 0; i < svts[l].size(); ++i)
-        {
-            svts[l][i].reset(aabbi(vec3i(0), bricksize));
-        }
-    }
+    for (size_t i = 0; i < svts1.size(); ++i)
+        svts1[i].reset(aabbi(vec3i(0), bricksize));
+    for (size_t i = 0; i < svts2.size(); ++i)
+        svts2[i].reset(aabbi(vec3i(0), bricksize));
+    //...
 }
 
+template <int N>
 template <typename Tex>
-void HSVT::build(Tex transfunc)
+void NLSVT<N>::build(Tex transfunc)
 {
-    for (size_t l = 0; l < svts.size(); ++l)
+    #pragma omp parallel for
+    for (size_t i = 0; i < svts0.size(); ++i)
     {
-        if (l > 0)
-        {
-            for (size_t i = 0; i < svts[l-1].size(); ++i)
-            {
-                // Index of svt on level l
-                size_t index1 = i / (bricksize.x * bricksize.y * bricksize.z);
-
-                // Index in svt
-                size_t index2 = i % (bricksize.x * bricksize.y * bricksize.z);
-
-                svts[l][index1].data()[index2] = svts[l-1][i].get_count(
-                        aabbi(vec3i(0), bricksize));
-            }
-        }
-
-        if (l == 0) { //TODO!!
-        #pragma omp parallel for
-        for (size_t i = 0; i < svts[l].size(); ++i)
-        {
-            svts[l][i].build(transfunc);
-        }}
+        svts0[i].apply(transfunc);
+        svts0[i].build();
     }
 
-    exit(0);
+    if (N < 2)
+        return;
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < svts0.size(); ++i)
+    {
+        size_t j = 0;//i / (svts1[i].width * svts1[i].height * svts1[i].depth);
+        int x = i % num_svts[0].x;
+        int y = (i / num_svts[0].x) % num_svts[0].y;
+        int z = ((i / num_svts[0].x) / num_svts[0].y) % num_svts[0].z;
+        svts1[j].at(x, y, z) = svts0[i].last();
+    }
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < svts1.size(); ++i)
+    {
+        svts1[i].build();
+    }
+
+    if (N < 3)
+        return;
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < svts1.size(); ++i)
+    {
+        size_t j = i / (svts1[i].width * svts1[i].height * svts1[i].depth);
+        size_t k = i % svts1.size();
+        svts2[j].data()[k] = svts1[i].last();
+    }
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < svts2.size(); ++i)
+    {
+        svts2[i].build();
+    }
+    //...
 }
 
-uint64_t HSVT::get_count(aabbi bounds) const
+template <int N>
+uint64_t NLSVT<N>::get_count(aabbi bounds) const
 {
-#if 0
+#define CLIMB 1 // Climb up the hierarchy
     vec3i min_brick = bounds.min / bricksize;
     vec3i min_bpos = bounds.min - min_brick * bricksize;
 
@@ -391,20 +418,31 @@ uint64_t HSVT::get_count(aabbi bounds) const
 
             for (int bx = min_brick.x; bx <= max_brick.x; ++bx)
             {
+#if CLIMB
+                if (bx > min_brick.x && bx < max_brick.x && by > min_brick.y && by < max_brick.y && bz > min_brick.z && bz < max_brick.z)
+                {
+                    bx = max(min_brick.x, max_brick.x - 1);
+                    continue;
+                }
+#endif
+
                 int minx = bx == min_brick.x ? min_bpos.x : 0;
                 int maxx = bx == max_brick.x ? max_bpos.x : bricksize.x;
 
                 // 32**3 bricks can store 16 bit values, but the
                 // overall count will generally not fit in 16 bits
-                count += static_cast<uint64_t>(svts[bz * num_svts.x * num_svts.y + by * num_svts.x + bx].get_count(
+                count += static_cast<uint64_t>(svts0[bz * num_svts[0].x * num_svts[0].y + by * num_svts[0].x + bx].get_count(
                         aabbi(vec3i(minx, miny, minz), vec3i(maxx, maxy, maxz))));
             }
         }
-
     }
 
-    return count;
+#if CLIMB
+    if (min_brick.x < max_brick.x && min_brick.y < max_brick.y && min_brick.z < max_brick.z)
+        count += svts1[0/*TODO*/].get_count(aabbi(min_brick+vec3i(1), max_brick));
 #endif
+
+    return count;
 }
 
 
@@ -456,7 +494,7 @@ struct KdTree
         }
     }
 
-    HSVT hsvt;
+    NLSVT<2> hsvt;
 
     NodePtr root = nullptr;
 
