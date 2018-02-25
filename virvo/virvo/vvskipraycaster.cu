@@ -66,9 +66,9 @@ struct SVT
     void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
     template <typename Tex>
-    void apply(Tex transfunc);
+    void build(Tex transfunc);
 
-    void build();
+    aabbi boundary(aabbi bbox) const;
 
     T& operator()(int x, int y, int z)
     {
@@ -170,8 +170,9 @@ void SVT<T>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 
 template <typename T>
 template <typename Tex>
-void SVT<T>::apply(Tex transfunc)
+void SVT<T>::build(Tex transfunc)
 {
+    // Apply transfer function
     for (int z = 0; z < depth; ++z)
     {
         for (int y = 0; y < height; ++y)
@@ -186,11 +187,8 @@ void SVT<T>::apply(Tex transfunc)
             }
         }
     }
-}
 
-template <typename T>
-void SVT<T>::build()
-{
+
     // Build summed volume table
 
     // Init 0-border voxel
@@ -261,6 +259,123 @@ void SVT<T>::build()
     }
 }
 
+// produce a boundary around the *non-empty* voxels in bbox
+template <typename T>
+aabbi SVT<T>::boundary(aabbi bbox) const
+{
+    aabbi bounds = bbox;
+
+    // Search for the minimal volume bounding box
+    // that contains #voxels contained in bbox!
+    uint16_t voxels = get_count(bounds);
+
+
+    // X boundary from left
+    for (int x = bounds.min.x; x < bounds.max.x; ++x)
+    {
+        aabbi lbox = bounds;
+        lbox.min.x = x;
+
+        if (get_count(lbox) == voxels)
+        {
+            bounds = lbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Y boundary from left
+    for (int y = bounds.min.y; y < bounds.max.y; ++y)
+    {
+        aabbi lbox = bounds;
+        lbox.min.y = y;
+
+        if (get_count(lbox) == voxels)
+        {
+            bounds = lbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Z boundary from left
+    for (int z = bounds.min.z; z < bounds.max.z; ++z)
+    {
+        aabbi lbox = bounds;
+        lbox.min.z = z;
+
+        if (get_count(lbox) == voxels)
+        {
+            bounds = lbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // X boundary from right
+    for (int x = bounds.max.x; x > bounds.min.x; --x)
+    {
+        aabbi rbox = bounds;
+        rbox.max.x = x;
+
+        if (get_count(rbox) == voxels)
+        {
+            bounds = rbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Y boundary from right
+    for (int y = bounds.max.y; y > bounds.min.y; --y)
+    {
+        aabbi rbox = bounds;
+        rbox.max.y = y;
+
+        if (get_count(rbox) == voxels)
+        {
+            bounds = rbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Z boundary from right
+    for (int z = bounds.max.z; z > bounds.min.z; --z)
+    {
+        aabbi rbox = bounds;
+        rbox.max.z = z;
+
+        if (get_count(rbox) == voxels)
+        {
+            bounds = rbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+//std::cout << bbox.min << ' ' << bbox.max << '\n';
+//std::cout << bounds.min << ' ' << bounds.max << '\n';
+//std::cout << '\n';
+
+    return bounds;
+}
 
 //-------------------------------------------------------------------------------------------------
 // two-level SVT
@@ -274,6 +389,8 @@ struct TLSVT
 
     template <typename Tex>
     void build(Tex transfunc);
+
+    aabbi boundary(aabbi bbox) const;
 
     uint64_t get_count(aabbi bounds) const;
 
@@ -325,9 +442,126 @@ void TLSVT::build(Tex transfunc)
     #pragma omp parallel for
     for (size_t i = 0; i < svts.size(); ++i)
     {
-        svts[i].apply(transfunc);
-        svts[i].build();
+        svts[i].build(transfunc);
     }
+}
+
+aabbi TLSVT::boundary(aabbi bbox) const
+{
+#if 1
+    aabbi bounds = bbox;
+
+    // Search for the minimal volume bounding box
+    // that contains #voxels contained in bbox!
+    uint16_t voxels = get_count(bounds);
+
+
+    // X boundary from left
+    for (int x = bounds.min.x; x < bounds.max.x; ++x)
+    {
+        aabbi lbox = bounds;
+        lbox.min.x = x;
+
+        if (get_count(lbox) == voxels)
+        {
+            bounds = lbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Y boundary from left
+    for (int y = bounds.min.y; y < bounds.max.y; ++y)
+    {
+        aabbi lbox = bounds;
+        lbox.min.y = y;
+
+        if (get_count(lbox) == voxels)
+        {
+            bounds = lbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Z boundary from left
+    for (int z = bounds.min.z; z < bounds.max.z; ++z)
+    {
+        aabbi lbox = bounds;
+        lbox.min.z = z;
+
+        if (get_count(lbox) == voxels)
+        {
+            bounds = lbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // X boundary from right
+    for (int x = bounds.max.x; x > bounds.min.x; --x)
+    {
+        aabbi rbox = bounds;
+        rbox.max.x = x;
+
+        if (get_count(rbox) == voxels)
+        {
+            bounds = rbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Y boundary from right
+    for (int y = bounds.max.y; y > bounds.min.y; --y)
+    {
+        aabbi rbox = bounds;
+        rbox.max.y = y;
+
+        if (get_count(rbox) == voxels)
+        {
+            bounds = rbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    // Z boundary from right
+    for (int z = bounds.max.z; z > bounds.min.z; --z)
+    {
+        aabbi rbox = bounds;
+        rbox.max.z = z;
+
+        if (get_count(rbox) == voxels)
+        {
+            bounds = rbox;
+        }
+        else
+        {
+            break;
+        }
+    }
+//std::cout << bbox.min << ' ' << bbox.max << '\n';
+//std::cout << bounds.min << ' ' << bounds.max << '\n';
+//std::cout << '\n';
+
+    return bounds;
+#endif
 }
 
 uint64_t TLSVT::get_count(aabbi bounds) const
@@ -416,6 +650,7 @@ struct KdTree
     }
 
     TLSVT hsvt;
+    //SVT<uint64_t> hsvt;
 
     NodePtr root = nullptr;
 
@@ -429,7 +664,6 @@ struct KdTree
     void updateTransfunc(Tex transfunc);
 
     void node_splitting(NodePtr& n);
-    aabbi boundary(aabbi bbox) const;
 
     std::vector<aabb> get_leaf_nodes(vec3 eye) const;
 
@@ -463,7 +697,7 @@ void KdTree::updateTransfunc(Tex transfunc)
     sw.start();
 #endif
     root.reset(new Node);
-    root->bbox = boundary(aabbi(vec3i(0), vec3i(vox[0], vox[1], vox[2])));
+    root->bbox = hsvt.boundary(aabbi(vec3i(0), vec3i(vox[0], vox[1], vox[2])));
     root->depth = 0;
     node_splitting(root);
 #ifdef BUILD_TIMING
@@ -515,8 +749,8 @@ void KdTree::node_splitting(KdTree::NodePtr& n)
         ltmp.max[axis] = first + dl * p;
         rtmp.min[axis] = first + dl * p;
 
-        ltmp = boundary(ltmp);
-        rtmp = boundary(rtmp);
+        ltmp = hsvt.boundary(ltmp);
+        rtmp = hsvt.boundary(rtmp);
 
         int c = volume(ltmp) + volume(rtmp);
 
@@ -553,123 +787,6 @@ void KdTree::node_splitting(KdTree::NodePtr& n)
     n->right->bbox = rbox;
     n->right->depth = n->depth + 1;
     node_splitting(n->right);
-}
-
-// produce a boundary around the *non-empty* voxels in bbox
-aabbi KdTree::boundary(aabbi bbox) const
-{
-    aabbi bounds = bbox;
-
-    // Search for the minimal volume bounding box
-    // that contains #voxels contained in bbox!
-    uint16_t voxels = hsvt.get_count(bounds);
-
-
-    // X boundary from left
-    for (int x = bounds.min.x; x < bounds.max.x; ++x)
-    {
-        aabbi lbox = bounds;
-        lbox.min.x = x;
-
-        if (hsvt.get_count(lbox) == voxels)
-        {
-            bounds = lbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-    // Y boundary from left
-    for (int y = bounds.min.y; y < bounds.max.y; ++y)
-    {
-        aabbi lbox = bounds;
-        lbox.min.y = y;
-
-        if (hsvt.get_count(lbox) == voxels)
-        {
-            bounds = lbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-    // Z boundary from left
-    for (int z = bounds.min.z; z < bounds.max.z; ++z)
-    {
-        aabbi lbox = bounds;
-        lbox.min.z = z;
-
-        if (hsvt.get_count(lbox) == voxels)
-        {
-            bounds = lbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-    // X boundary from right
-    for (int x = bounds.max.x; x > bounds.min.x; --x)
-    {
-        aabbi rbox = bounds;
-        rbox.max.x = x;
-
-        if (hsvt.get_count(rbox) == voxels)
-        {
-            bounds = rbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-    // Y boundary from right
-    for (int y = bounds.max.y; y > bounds.min.y; --y)
-    {
-        aabbi rbox = bounds;
-        rbox.max.y = y;
-
-        if (hsvt.get_count(rbox) == voxels)
-        {
-            bounds = rbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-    // Z boundary from right
-    for (int z = bounds.max.z; z > bounds.min.z; --z)
-    {
-        aabbi rbox = bounds;
-        rbox.max.z = z;
-
-        if (hsvt.get_count(rbox) == voxels)
-        {
-            bounds = rbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-//std::cout << bbox.min << ' ' << bbox.max << '\n';
-//std::cout << bounds.min << ' ' << bounds.max << '\n';
-//std::cout << '\n';
-
-    return bounds;
 }
 
 std::vector<aabb> KdTree::get_leaf_nodes(vec3 eye) const
