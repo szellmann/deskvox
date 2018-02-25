@@ -271,7 +271,7 @@ aabbi SVT<T>::boundary(aabbi bbox) const
 
 
     // X boundary from left
-    for (int x = bounds.min.x; x < bounds.max.x; ++x)
+    for (int x = bounds.min.x; x <= bounds.max.x; ++x)
     {
         aabbi lbox = bounds;
         lbox.min.x = x;
@@ -288,7 +288,7 @@ aabbi SVT<T>::boundary(aabbi bbox) const
 
 
     // Y boundary from left
-    for (int y = bounds.min.y; y < bounds.max.y; ++y)
+    for (int y = bounds.min.y; y <= bounds.max.y; ++y)
     {
         aabbi lbox = bounds;
         lbox.min.y = y;
@@ -305,7 +305,7 @@ aabbi SVT<T>::boundary(aabbi bbox) const
 
 
     // Z boundary from left
-    for (int z = bounds.min.z; z < bounds.max.z; ++z)
+    for (int z = bounds.min.z; z <= bounds.max.z; ++z)
     {
         aabbi lbox = bounds;
         lbox.min.z = z;
@@ -322,7 +322,7 @@ aabbi SVT<T>::boundary(aabbi bbox) const
 
 
     // X boundary from right
-    for (int x = bounds.max.x; x > bounds.min.x; --x)
+    for (int x = bounds.max.x; x >= bounds.min.x; --x)
     {
         aabbi rbox = bounds;
         rbox.max.x = x;
@@ -339,7 +339,7 @@ aabbi SVT<T>::boundary(aabbi bbox) const
 
 
     // Y boundary from right
-    for (int y = bounds.max.y; y > bounds.min.y; --y)
+    for (int y = bounds.max.y; y >= bounds.min.y; --y)
     {
         aabbi rbox = bounds;
         rbox.max.y = y;
@@ -356,7 +356,7 @@ aabbi SVT<T>::boundary(aabbi bbox) const
 
 
     // Z boundary from right
-    for (int z = bounds.max.z; z > bounds.min.z; --z)
+    for (int z = bounds.max.z; z >= bounds.min.z; --z)
     {
         aabbi rbox = bounds;
         rbox.max.z = z;
@@ -451,13 +451,77 @@ aabbi TLSVT::boundary(aabbi bbox) const
 #if 1
     aabbi bounds = bbox;
 
+    vec3i min_brick = bounds.min / bricksize;
+    vec3i min_bpos = bounds.min - min_brick * bricksize;
+
+    vec3i max_brick = bounds.max / bricksize;
+    vec3i max_bpos = bounds.max - max_brick * bricksize;
+
+    vec3i num_bricks = max_brick - min_brick + vec3i(1);
+    std::vector<aabbi> brick_boundaries(num_bricks.x * num_bricks.y * num_bricks.z);
+
+    #pragma omp parallel for collapse(3)
+    for (int bz = min_brick.z; bz <= max_brick.z; ++bz)
+    {
+        for (int by = min_brick.y; by <= max_brick.y; ++by)
+        {
+            for (int bx = min_brick.x; bx <= max_brick.x; ++bx)
+            {
+                int minz = bz == min_brick.z ? min_bpos.z : 0;
+                int maxz = bz == max_brick.z ? max_bpos.z : bricksize.z;
+
+                int miny = by == min_brick.y ? min_bpos.y : 0;
+                int maxy = by == max_brick.y ? max_bpos.y : bricksize.y;
+
+                int minx = bx == min_brick.x ? min_bpos.x : 0;
+                int maxx = bx == max_brick.x ? max_bpos.x : bricksize.x;
+
+                int i = (bz - min_brick.z) * num_bricks.x * num_bricks.y + (by - min_brick.y) * num_bricks.x + (bx - min_brick.x);
+
+                auto& svt = svts[bz * num_svts.x * num_svts.y + by * num_svts.x + bx];
+                aabbi test(vec3i(minx, miny, minz), vec3i(maxx, maxy, maxz));
+
+                if (svt.get_count(test) != 0)
+                    brick_boundaries[i] = svt.boundary(test);
+                else
+                    brick_boundaries[i] = aabbi(vec3i(0), vec3i(0));
+
+                brick_boundaries[i].min += vec3i(bx * bricksize.x, by * bricksize.y, bz * bricksize.z);
+                brick_boundaries[i].max += vec3i(bx * bricksize.x, by * bricksize.y, bz * bricksize.z);
+            }
+        }
+    }
+
+    bounds.invalidate();
+
+    for (size_t i = 0; i < brick_boundaries.size(); ++i)
+    {
+        aabbi bb = brick_boundaries[i];
+
+        if (bb.invalid() || volume(bb) <= 0)
+            continue;
+
+        if (!bbox.contains(bb))
+            continue;
+
+        bounds = combine(bounds, bb);
+    }
+
+    if (bounds.invalid())
+        return bbox;
+    else
+        return bounds;
+#else
+    {
+    aabbi bounds = bbox;
+
     // Search for the minimal volume bounding box
     // that contains #voxels contained in bbox!
     uint16_t voxels = get_count(bounds);
 
 
     // X boundary from left
-    for (int x = bounds.min.x; x < bounds.max.x; ++x)
+    for (int x = bounds.min.x; x <= bounds.max.x; ++x)
     {
         aabbi lbox = bounds;
         lbox.min.x = x;
@@ -474,7 +538,7 @@ aabbi TLSVT::boundary(aabbi bbox) const
 
 
     // Y boundary from left
-    for (int y = bounds.min.y; y < bounds.max.y; ++y)
+    for (int y = bounds.min.y; y <= bounds.max.y; ++y)
     {
         aabbi lbox = bounds;
         lbox.min.y = y;
@@ -491,7 +555,7 @@ aabbi TLSVT::boundary(aabbi bbox) const
 
 
     // Z boundary from left
-    for (int z = bounds.min.z; z < bounds.max.z; ++z)
+    for (int z = bounds.min.z; z <= bounds.max.z; ++z)
     {
         aabbi lbox = bounds;
         lbox.min.z = z;
@@ -508,7 +572,7 @@ aabbi TLSVT::boundary(aabbi bbox) const
 
 
     // X boundary from right
-    for (int x = bounds.max.x; x > bounds.min.x; --x)
+    for (int x = bounds.max.x; x >= bounds.min.x; --x)
     {
         aabbi rbox = bounds;
         rbox.max.x = x;
@@ -525,7 +589,7 @@ aabbi TLSVT::boundary(aabbi bbox) const
 
 
     // Y boundary from right
-    for (int y = bounds.max.y; y > bounds.min.y; --y)
+    for (int y = bounds.max.y; y >= bounds.min.y; --y)
     {
         aabbi rbox = bounds;
         rbox.max.y = y;
@@ -542,7 +606,7 @@ aabbi TLSVT::boundary(aabbi bbox) const
 
 
     // Z boundary from right
-    for (int z = bounds.max.z; z > bounds.min.z; --z)
+    for (int z = bounds.max.z; z >= bounds.min.z; --z)
     {
         aabbi rbox = bounds;
         rbox.max.z = z;
@@ -561,6 +625,7 @@ aabbi TLSVT::boundary(aabbi bbox) const
 //std::cout << '\n';
 
     return bounds;
+    }
 #endif
 }
 
