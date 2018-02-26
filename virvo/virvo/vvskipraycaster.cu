@@ -270,106 +270,78 @@ aabbi SVT<T>::boundary(aabbi bbox) const
     uint16_t voxels = get_count(bounds);
 
 
-    // X boundary from left
-    for (int x = bounds.min.x; x <= bounds.max.x; ++x)
+    // X boundary
+    int x = (bounds.min.x + bounds.max.x) / 2;
+
+    while (x >= 1)
     {
         aabbi lbox = bounds;
-        lbox.min.x = x;
+        lbox.min.x += x;
 
         if (get_count(lbox) == voxels)
         {
             bounds = lbox;
         }
-        else
-        {
-            break;
-        }
-    }
 
+        aabbi rbox = bounds;
+        rbox.max.x -= x;
+
+        if (get_count(rbox) == voxels)
+        {
+            bounds = rbox;
+        }
+
+        x /= 2;
+    }
 
     // Y boundary from left
-    for (int y = bounds.min.y; y <= bounds.max.y; ++y)
+    int y = (bounds.min.y + bounds.max.y) / 2;
+
+    while (y >= 1)
     {
         aabbi lbox = bounds;
-        lbox.min.y = y;
+        lbox.min.y += y;
 
         if (get_count(lbox) == voxels)
         {
             bounds = lbox;
         }
-        else
-        {
-            break;
-        }
-    }
 
+        aabbi rbox = bounds;
+        rbox.max.y -= y;
+
+        if (get_count(rbox) == voxels)
+        {
+            bounds = rbox;
+        }
+
+        y /= 2;
+    }
 
     // Z boundary from left
-    for (int z = bounds.min.z; z <= bounds.max.z; ++z)
+    int z = (bounds.min.z + bounds.max.z) / 2;
+
+    while (z >= 1)
     {
         aabbi lbox = bounds;
-        lbox.min.z = z;
+        lbox.min.z += z;
 
         if (get_count(lbox) == voxels)
         {
             bounds = lbox;
         }
-        else
-        {
-            break;
-        }
-    }
 
-
-    // X boundary from right
-    for (int x = bounds.max.x; x >= bounds.min.x; --x)
-    {
         aabbi rbox = bounds;
-        rbox.max.x = x;
+        rbox.max.z -= z;
 
         if (get_count(rbox) == voxels)
         {
             bounds = rbox;
         }
-        else
-        {
-            break;
-        }
+
+        z /= 2;
     }
 
-
-    // Y boundary from right
-    for (int y = bounds.max.y; y >= bounds.min.y; --y)
-    {
-        aabbi rbox = bounds;
-        rbox.max.y = y;
-
-        if (get_count(rbox) == voxels)
-        {
-            bounds = rbox;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-    // Z boundary from right
-    for (int z = bounds.max.z; z >= bounds.min.z; --z)
-    {
-        aabbi rbox = bounds;
-        rbox.max.z = z;
-
-        if (get_count(rbox) == voxels)
-        {
-            bounds = rbox;
-        }
-        else
-        {
-            break;
-        }
-    }
 //std::cout << bbox.min << ' ' << bbox.max << '\n';
 //std::cout << bounds.min << ' ' << bounds.max << '\n';
 //std::cout << '\n';
