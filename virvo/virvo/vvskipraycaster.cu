@@ -1293,6 +1293,27 @@ void vvSkipRayCaster::updateVolumeData()
     virvo::TextureUtil tu(vd);
     for (int f = 0; f < vd->frames; ++f)
     {
+#if 0
+        updateTransferFunction();
+        std::vector<uint8_t> vals;
+        auto num_svts = impl_->kdtree.hsvt.num_svts;
+        auto& svts = impl_->kdtree.hsvt.svts;
+        for (int z = 0; z < num_svts.z; ++z)
+        {
+            for (int y = 0; y < num_svts.y; ++y)
+            {
+                for (int x = 0; x < num_svts.x; ++x)
+                {
+                    auto& svt = svts[z * num_svts.x * num_svts.y + y * num_svts.x + x];
+                    uint16_t max = *std::max_element(svt.data(), svt.data() + svt.width * svt.height * svt.depth);
+                    for (int i = 0; i < svt.width * svt.height * svt.depth; ++i)
+                        vals.push_back((svt.data()[i]/(float)max)*255);
+                }
+            }
+        }
+
+        uint8_t const* tex_data = vals.data();
+#else
         virvo::TextureUtil::Pointer tex_data = nullptr;
 
         tex_data = tu.getTexture(virvo::vec3i(0),
@@ -1300,6 +1321,7 @@ void vvSkipRayCaster::updateVolumeData()
             texture_format,
             virvo::TextureUtil::All,
             f);
+#endif
 
         impl_->volumes[f] = cuda_texture<unorm<8>, 3>(vd->vox[0], vd->vox[1], vd->vox[2]);
         impl_->volumes[f].reset(reinterpret_cast<unorm<8> const*>(tex_data));
