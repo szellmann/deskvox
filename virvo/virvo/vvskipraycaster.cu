@@ -733,9 +733,7 @@ struct KdTree
     std::vector<aabb> get_leaf_nodes(vec3 eye) const;
 
     // Need OpenGL context!
-    void renderGL() const;
-    // Need OpenGL context!
-    void renderGL(NodePtr const& n) const;
+    void renderGL(vec3 eye) const;
 };
 
 void KdTree::updateVolume(vvVolDesc const& vd, int channel)
@@ -878,14 +876,11 @@ std::vector<aabb> KdTree::get_leaf_nodes(vec3 eye) const
     return result;
 }
 
-void KdTree::renderGL() const
+void KdTree::renderGL(vec3 eye) const
 {
-    renderGL(root);
-}
-
-void KdTree::renderGL(KdTree::NodePtr const& n) const
-{
-    if (n != nullptr)
+    glLineWidth(2.f);
+    glEnable(GL_BLEND);
+    traverse(root, eye, [this,eye](NodePtr const& n)
     {
         if (n->left == nullptr && n->right == nullptr)
         {
@@ -897,8 +892,82 @@ void KdTree::renderGL(KdTree::NodePtr const& n) const
             vec3 bmin = (vec3(bbox.min) - vec3(vox)/2.f) * dist * scale;
             vec3 bmax = (vec3(bbox.max) - vec3(vox)/2.f) * dist * scale;
 
+//            float no_mat[] = {0.0f, 0.0f, 0.0f, 1.0f};
+//            float mat_ambient[] = {0.7f, 0.7f, 0.7f, 1.0f};
+//            float mat_ambient_color[] = {0.8f, 0.8f, 0.2f, 1.0f};
+//            float mat_diffuse[] = {0.1f, 0.5f, 0.8f, 1.0f};
+//            float mat_specular[] = {1.0f, 1.0f, 1.0f, 1.0f};
+//            float no_shininess = 0.0f;
+//            float low_shininess = 5.0f;
+//            float high_shininess = 100.0f;
+//            float mat_emission[] = {0.3f, 0.2f, 0.2f, 0.0f};
+//
+//            glMaterialfv(GL_FRONT, GL_AMBIENT, no_mat);
+//            glMaterialfv(GL_FRONT, GL_DIFFUSE, mat_diffuse);
+//            glMaterialfv(GL_FRONT, GL_SPECULAR, no_mat);
+//            glMaterialf(GL_FRONT, GL_SHININESS, no_shininess);
+//            glMaterialfv(GL_FRONT, GL_EMISSION, no_mat);
+//
+//            float ambient[] = {0.0f, 0.0f, 0.0f, 1.0f};
+//            float diffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
+//            float specular[] = {1.0f, 1.0f, 1.0f, 1.0f};
+//            float position[] = {1.0f, 1.0f, 0.3f, 0.0f};
+//
+//            glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
+//            glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
+//            glLightfv(GL_LIGHT0, GL_POSITION, position);
+//
+//            int viewpoint =0;
+//            glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, viewpoint);
+//
+//            glEnable(GL_LIGHT0);
+//            glEnable(GL_LIGHTING);
+//
+//            glBegin(GL_QUADS);
+//            glColor4f(0.7,0.7,0.9,0.2f);
+//
+//            glVertex3f(bmin.x, bmin.y, bmin.z);
+//            glVertex3f(bmax.x, bmin.y, bmin.z);
+//
+//            glVertex3f(bmax.x, bmin.y, bmin.z);
+//            glVertex3f(bmax.x, bmax.y, bmin.z);
+//
+//            glVertex3f(bmax.x, bmax.y, bmin.z);
+//            glVertex3f(bmin.x, bmax.y, bmin.z);
+//
+//            glVertex3f(bmin.x, bmax.y, bmin.z);
+//            glVertex3f(bmin.x, bmin.y, bmin.z);
+//
+//            //
+//            glVertex3f(bmin.x, bmin.y, bmax.z);
+//            glVertex3f(bmax.x, bmin.y, bmax.z);
+//
+//            glVertex3f(bmax.x, bmin.y, bmax.z);
+//            glVertex3f(bmax.x, bmax.y, bmax.z);
+//
+//            glVertex3f(bmax.x, bmax.y, bmax.z);
+//            glVertex3f(bmin.x, bmax.y, bmax.z);
+//
+//            glVertex3f(bmin.x, bmax.y, bmax.z);
+//            glVertex3f(bmin.x, bmin.y, bmax.z);
+//
+//            //
+//            glVertex3f(bmin.x, bmin.y, bmin.z);
+//            glVertex3f(bmin.x, bmin.y, bmax.z);
+//
+//            glVertex3f(bmax.x, bmin.y, bmin.z);
+//            glVertex3f(bmax.x, bmin.y, bmax.z);
+//
+//            glVertex3f(bmax.x, bmax.y, bmin.z);
+//            glVertex3f(bmax.x, bmax.y, bmax.z);
+//
+//            glVertex3f(bmin.x, bmax.y, bmin.z);
+//            glVertex3f(bmin.x, bmax.y, bmax.z);
+//            glEnd();
+
+
             glBegin(GL_LINES);
-            glColor3f(0,0,0);
+            glColor4f(0,0,0,1);
 
             glVertex3f(bmin.x, bmin.y, bmin.z);
             glVertex3f(bmax.x, bmin.y, bmin.z);
@@ -938,11 +1007,10 @@ void KdTree::renderGL(KdTree::NodePtr const& n) const
             glVertex3f(bmin.x, bmax.y, bmin.z);
             glVertex3f(bmin.x, bmax.y, bmax.z);
             glEnd();
-        }
 
-        renderGL(n->left);
-        renderGL(n->right);
-    }
+
+        }
+    });
 }
 
 
@@ -1244,7 +1312,7 @@ void vvSkipRayCaster::renderVolumeGL()
 
 #if KDTREE
     if (_boundaries)
-        impl_->kdtree.renderGL();
+        impl_->kdtree.renderGL(eye);
 #endif
 }
 

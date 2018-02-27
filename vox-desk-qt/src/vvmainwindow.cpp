@@ -143,7 +143,7 @@ vvMainWindow::vvMainWindow(const QString& filename, QWidget* parent)
   }
 
   // widgets and dialogs
-  const int superSamples = 0;
+  const int superSamples = 4;
   QGLFormat format;
   format.setDoubleBuffer(true);
   format.setDepth(true);
