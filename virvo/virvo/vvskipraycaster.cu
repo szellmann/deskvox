@@ -257,6 +257,30 @@ void SVT<T>::build(Tex transfunc)
             }
         }
     }
+
+    //for (int i = 0; i < width * 3; ++i)
+    //{
+    //    for (int j = min(height * 2, i); j >= max(i - height + 1, 0); --j)
+    //    {
+    //        for (int k = min(depth - 1, j); k >= max(j - depth + 1, 1); --k)
+    //        {
+    //            int x = k;
+    //            int y = j - k;
+    //            int z = i - j;
+
+    //            //if (y >= 1 && y < height && z >= 1 && z < depth)
+    //            if (y >= 1 && z >= 1)
+    //            {
+    //                at(x, y, z) = at(x, y, z) + at(x-1, y-1, z-1)
+    //                    + at(x-1, y, z) - at(x, y-1, z-1)
+    //                    + at(x, y-1, z) - at(x-1, y, z-1)
+    //                    + at(x, y, z-1) - at(x-1, y-1, z);
+    //            }
+    //            //else if (y == 1)
+    //            //    std::cout << i << ' ' << j << ' ' << k << '\n';
+    //        }
+    //    }
+    //}
 }
 
 // produce a boundary around the *non-empty* voxels in bbox
