@@ -32,12 +32,14 @@
 
 #include <visionaray/math/math.h>
 #include <visionaray/texture/texture.h>
+#include <visionaray/material.h>
 #include <visionaray/pixel_format.h>
 #include <visionaray/pixel_traits.h>
 #include <visionaray/point_light.h>
 #include <visionaray/render_target.h>
 #include <visionaray/result_record.h>
 #include <visionaray/scheduler.h>
+#include <visionaray/shade_record.h>
 
 #undef MATH_NAMESPACE
 
@@ -1151,11 +1153,70 @@ void KdTree::renderGL(vec3 eye) const
 
 
 //-------------------------------------------------------------------------------------------------
+//
+//
+
+template <typename T, typename Tex> 
+VSNRAY_FUNC 
+inline vector<3, T> gradient(Tex const& tex, vector<3, T> tex_coord) 
+{ 
+    vector<3, T> s1; 
+    vector<3, T> s2; 
+ 
+    float DELTA = 0.01f; 
+ 
+    s1.x = tex3D(tex, tex_coord + vector<3, T>(DELTA, 0.0f, 0.0f)); 
+    s2.x = tex3D(tex, tex_coord - vector<3, T>(DELTA, 0.0f, 0.0f)); 
+    // signs for y and z are swapped because of texture orientation 
+    s1.y = tex3D(tex, tex_coord - vector<3, T>(0.0f, DELTA, 0.0f)); 
+    s2.y = tex3D(tex, tex_coord + vector<3, T>(0.0f, DELTA, 0.0f)); 
+    s1.z = tex3D(tex, tex_coord - vector<3, T>(0.0f, 0.0f, DELTA)); 
+    s2.z = tex3D(tex, tex_coord + vector<3, T>(0.0f, 0.0f, DELTA)); 
+ 
+    return s2 - s1; 
+}
+
+
+//-------------------------------------------------------------------------------------------------
 // Volume rendering kernel
 //
 
 struct Kernel
 {
+    template <typename C>
+    VSNRAY_FUNC
+    C shade(C color, vec3 view_dir, vec3 pos) const
+    {
+        if (color.w < 0.1f)
+            return color;
+
+        auto grad = gradient(volume, pos);
+
+        if (length(grad) == 0.0f)
+            return color;
+
+        plastic<float> mat; 
+        mat.ca() = from_rgb(vector<3, float>(0.3f, 0.3f, 0.3f));
+        mat.cd() = from_rgb(vector<3, float>(0.8f, 0.8f, 0.8f));
+        mat.cs() = from_rgb(vector<3, float>(0.8f, 0.8f, 0.8f));
+        mat.ka() = 1.0f;
+        mat.kd() = 1.0f;
+        mat.ks() = 1.0f;
+        mat.specular_exp() = 12.0f;
+
+        shade_record<float> sr;
+        sr.normal = normalize(grad);
+        sr.geometric_normal = sr.normal;
+        sr.view_dir = view_dir;
+        sr.tex_color = vec3(1.0f);
+        sr.light_dir = normalize(light.position());
+        sr.light_intensity = light.intensity(pos);
+
+        color.xyz() = color.xyz() * to_rgb(mat.shade(sr));
+
+        return color;
+    }
+
     template <typename R, typename T, typename C>
     VSNRAY_FUNC
     void integrate(R ray, T t, T tmax, C& dst) const
@@ -1178,6 +1239,8 @@ struct Kernel
 
             T voxel = tex3D(volume, tex_coord);
             C color = tex1D(transfunc, voxel);
+
+            color = shade(color, -ray.dir, tex_coord);
 
             // opacity correction
             color.w = 1.0f - pow(1.0f - color.w, dt);
