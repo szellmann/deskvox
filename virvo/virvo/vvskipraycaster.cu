@@ -899,6 +899,8 @@ void KdTree::updateTransfunc(Tex transfunc)
     node_splitting(root);
 #ifdef BUILD_TIMING
     std::cout << "splitting: " << sw.getTime() << " sec.\n";
+    auto leaves = get_leaf_nodes(vec3());
+    std::cout << "# leaves: " << leaves.size() << '\n';
 #endif
 }
 
@@ -1357,6 +1359,7 @@ bool vvSkipRayCaster::present() const
     {
         vec3 eye(getEyePosition().x, getEyePosition().y, getEyePosition().z);
         glEnable(GL_DEPTH_TEST);
+        glClear(GL_DEPTH_BUFFER_BIT);
         impl_->kdtree.renderGL(eye);
     }
 #endif
