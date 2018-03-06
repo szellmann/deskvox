@@ -258,29 +258,139 @@ void SVT<T>::build(Tex transfunc)
         }
     }
 
-    //for (int i = 0; i < width * 3; ++i)
-    //{
-    //    for (int j = min(height * 2, i); j >= max(i - height + 1, 0); --j)
-    //    {
-    //        for (int k = min(depth - 1, j); k >= max(j - depth + 1, 1); --k)
-    //        {
-    //            int x = k;
-    //            int y = j - k;
-    //            int z = i - j;
+#if 0
+    for (int i = 0; i < width * 3; ++i)
+    {
+        for (int j = min(height * 2, i); j >= max(i - height + 1, 0); --j)
+        {
+            for (int k = min(depth - 1, j); k >= max(j - depth + 1, 1); --k)
+            {
+                int x = k;
+                int y = j - k;
+                int z = i - j;
 
-    //            //if (y >= 1 && y < height && z >= 1 && z < depth)
-    //            if (y >= 1 && z >= 1)
-    //            {
-    //                at(x, y, z) = at(x, y, z) + at(x-1, y-1, z-1)
-    //                    + at(x-1, y, z) - at(x, y-1, z-1)
-    //                    + at(x, y-1, z) - at(x-1, y, z-1)
-    //                    + at(x, y, z-1) - at(x-1, y-1, z);
-    //            }
-    //            //else if (y == 1)
-    //            //    std::cout << i << ' ' << j << ' ' << k << '\n';
-    //        }
-    //    }
-    //}
+                //if (y >= 1 && y < height && z >= 1 && z < depth)
+                if (x >= 1 && x < 8 && y >= 1 && y < 8 && z >= 1 && z < 8)
+                {
+                    at(x, y, z) = at(x, y, z) + at(x-1, y-1, z-1)
+                        + at(x-1, y, z) - at(x, y-1, z-1)
+                        + at(x, y-1, z) - at(x-1, y, z-1)
+                        + at(x, y, z-1) - at(x-1, y-1, z);
+                }
+                else if (x >= 8 && x < height - 8 && y >= 8 && y < height - 8 && z >= 8 && z < depth - 8)
+                {
+                    VSNRAY_ALIGN(32) int X[8] = { k, k-1, k-2, k-3, k-4, k-5, k-6, k-7 };
+                    VSNRAY_ALIGN(32) int Y[8] = { j-k, j-(k-1), j-(k-2), j-(k-3), j-(k-4), j-(k-5), j-(k-6), j-(k-7) };
+
+                    simd::int8 a0(
+                        at(X[0], Y[0], z),
+                        at(X[1], Y[1], z),
+                        at(X[2], Y[2], z),
+                        at(X[3], Y[3], z),
+                        at(X[4], Y[4], z),
+                        at(X[5], Y[5], z),
+                        at(X[6], Y[6], z),
+                        at(X[7], Y[7], z)
+                        );
+
+                    simd::int8 a1(
+                        at(X[0]-1, Y[0]-1, z-1),
+                        at(X[1]-1, Y[1]-1, z-1),
+                        at(X[2]-1, Y[2]-1, z-1),
+                        at(X[3]-1, Y[3]-1, z-1),
+                        at(X[4]-1, Y[4]-1, z-1),
+                        at(X[5]-1, Y[5]-1, z-1),
+                        at(X[6]-1, Y[6]-1, z-1),
+                        at(X[7]-1, Y[7]-1, z-1)
+                        );
+
+                    simd::int8 a2(
+                        at(X[0]-1, Y[0], z),
+                        at(X[1]-1, Y[1], z),
+                        at(X[2]-1, Y[2], z),
+                        at(X[3]-1, Y[3], z),
+                        at(X[4]-1, Y[4], z),
+                        at(X[5]-1, Y[5], z),
+                        at(X[6]-1, Y[6], z),
+                        at(X[7]-1, Y[7], z)
+                        );
+
+                    simd::int8 a3(
+                        at(X[0], Y[0]-1, z-1),
+                        at(X[1], Y[1]-1, z-1),
+                        at(X[2], Y[2]-1, z-1),
+                        at(X[3], Y[3]-1, z-1),
+                        at(X[4], Y[4]-1, z-1),
+                        at(X[5], Y[5]-1, z-1),
+                        at(X[6], Y[6]-1, z-1),
+                        at(X[7], Y[7]-1, z-1)
+                        );
+                    simd::int8 a4(
+                        at(X[0], Y[0]-1, z),
+                        at(X[1], Y[1]-1, z),
+                        at(X[2], Y[2]-1, z),
+                        at(X[3], Y[3]-1, z),
+                        at(X[4], Y[4]-1, z),
+                        at(X[5], Y[5]-1, z),
+                        at(X[6], Y[6]-1, z),
+                        at(X[7], Y[7]-1, z)
+                        );
+
+                    simd::int8 a5(
+                        at(X[0]-1, Y[0], z-1),
+                        at(X[1]-1, Y[1], z-1),
+                        at(X[2]-1, Y[2], z-1),
+                        at(X[3]-1, Y[3], z-1),
+                        at(X[4]-1, Y[4], z-1),
+                        at(X[5]-1, Y[5], z-1),
+                        at(X[6]-1, Y[6], z-1),
+                        at(X[7]-1, Y[7], z-1)
+                        );
+                    simd::int8 a6(
+                        at(X[0], Y[0], z-1),
+                        at(X[1], Y[1], z-1),
+                        at(X[2], Y[2], z-1),
+                        at(X[3], Y[3], z-1),
+                        at(X[4], Y[4], z-1),
+                        at(X[5], Y[5], z-1),
+                        at(X[6], Y[6], z-1),
+                        at(X[7], Y[7], z-1)
+                        );
+
+                    simd::int8 a7(
+                        at(X[0]-1, Y[0]-1, z),
+                        at(X[1]-1, Y[1]-1, z),
+                        at(X[2]-1, Y[2]-1, z),
+                        at(X[3]-1, Y[3]-1, z),
+                        at(X[4]-1, Y[4]-1, z),
+                        at(X[5]-1, Y[5]-1, z),
+                        at(X[6]-1, Y[6]-1, z),
+                        at(X[7]-1, Y[7]-1, z)
+                        );
+
+                    simd::int8 a8 = a0 + a1 + a2 - a3 + a4 - a5 + a6 - a7;
+
+                    VSNRAY_ALIGN(32) int arr[8];
+                    store(arr, a8);
+
+                    for (int l = 0; l < 8; ++l)
+                        at(X[l], Y[l], z) = arr[l];
+
+                    k -= 7;
+                }
+                else
+                {
+                    at(x, y, z) = at(x, y, z) + at(x-1, y-1, z-1)
+                        + at(x-1, y, z) - at(x, y-1, z-1)
+                        + at(x, y-1, z) - at(x-1, y, z-1)
+                        + at(x, y, z-1) - at(x-1, y-1, z);
+                }
+                //else if (y == 1)
+                //    std::cout << i << ' ' << j << ' ' << k << '\n';
+            }
+        }
+    }
+#endif
 }
 
 // produce a boundary around the *non-empty* voxels in bbox
