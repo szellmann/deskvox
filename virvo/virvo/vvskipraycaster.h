@@ -31,6 +31,7 @@ public:
     VVAPI vvSkipRayCaster(vvVolDesc* vd, vvRenderState renderState);
     VVAPI ~vvSkipRayCaster();
 
+    VVAPI virtual bool present() const VV_OVERRIDE;
     VVAPI virtual void renderVolumeGL() VV_OVERRIDE;
     VVAPI virtual void updateTransferFunction() VV_OVERRIDE;
     VVAPI virtual void updateVolumeData() VV_OVERRIDE;

@@ -1348,6 +1348,22 @@ vvSkipRayCaster::~vvSkipRayCaster()
 {
 }
 
+bool vvSkipRayCaster::present() const
+{
+    bool res = vvRenderer::present();
+
+#if KDTREE
+    if (_boundaries)
+    {
+        vec3 eye(getEyePosition().x, getEyePosition().y, getEyePosition().z);
+        glEnable(GL_DEPTH_TEST);
+        impl_->kdtree.renderGL(eye);
+    }
+#endif
+
+    return res;
+}
+
 void vvSkipRayCaster::renderVolumeGL()
 {
     mat4 view_matrix;
@@ -1418,6 +1434,8 @@ void vvSkipRayCaster::renderVolumeGL()
     kernel.local_shading = getParameter(VV_LIGHTING);
     kernel.light         = light;
 
+    glDisable(GL_DEPTH_TEST);
+
 #if KDTREE
     vec3 eye(getEyePosition().x, getEyePosition().y, getEyePosition().z);
     auto leaves = impl_->kdtree.get_leaf_nodes(eye);
@@ -1442,11 +1460,6 @@ void vvSkipRayCaster::renderVolumeGL()
     float ms = 0.0f;
     cudaEventElapsedTime(&ms, start, stop);
     std::cout << std::fixed << std::setprecision(3) << "Elapsed time: " << ms << "ms\n";
-#endif
-
-#if KDTREE
-    if (_boundaries)
-        impl_->kdtree.renderGL(eye);
 #endif
 }
 
