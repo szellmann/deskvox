@@ -914,6 +914,7 @@ struct volume_kernel
             L_d_intermediate.z,
             1.0f
             );
+        int ray_count = 0;
         // End Dylan
 
         result_record<S> result;
@@ -1026,14 +1027,15 @@ struct volume_kernel
                     float xyz_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, min_z));
 
                     mean_extinction = XYZ_corner -
-                                            XYz_corner -
-                                            XyZ_corner - 
-                                            xYZ_corner +
-                                            xyZ_corner +
-                                            Xyz_corner +
-                                            xYz_corner -
-                                            xyz_corner;
+                                      XYz_corner -
+                                      XyZ_corner - 
+                                      xYZ_corner +
+                                      xyZ_corner +
+                                      Xyz_corner +
+                                      xYz_corner -
+                                      xyz_corner;
                     mean_extinction /= VOLUME_SIZE;
+                    ++ray_count;
 
                     // TODO: DELETE THIS
                     //mean_extinction = tex_coord.x;
@@ -1104,8 +1106,6 @@ struct volume_kernel
                                 do_shade,
                                 colori.xyz()
                                 );
-
-
 
                         // Dylan
                         
@@ -1248,7 +1248,8 @@ struct volume_kernel
         if (params.mode == Params::ShowExtinction)
         {
             // Invert white and black (white means highly ambient and black means heavily dense
-            result.color = C(1 - result.color.x, 1 - result.color.y, 1 - result.color.z, 1.0);
+            if (ray_count == 0) { ray_count = 1; }
+            result.color = C(1 - (result.color.x / ray_count), 1 - (result.color.y / ray_count), 1 - (result.color.z / ray_count), 1.0);
         }
         result.hit = hit_rec.hit;
         return result;
