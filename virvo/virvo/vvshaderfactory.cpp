@@ -236,7 +236,12 @@ const string vvShaderFactory::getShaderDir()
   {
 #define STRINGIFY(x) #x
 #ifdef VIRVO_SHADER_DIR
-	  result = STRINGIFY(VIRVO_SHADER_DIR);
+
+	  // **This line of code does not work (at least not on windows 8.1)**
+	  // This code returns a string of "VIRVO_SHADER_DIR" instead of a string containing the value of the constant
+	  result = STRINGIFY(VIRO_VSHADER_DIR);
+
+	  result = "E:\\Research Workspace\\deskvox\\virvo\\shader";
 #else
     cerr << "Warning: you should set the environment variable " << shaderEnv << " to point to your shader directory" << endl;
     static char shaderDir[256];

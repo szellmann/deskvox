@@ -18,6 +18,12 @@
 // License along with this library (see license.txt); if not, write to the
 // Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
+// Dylan -- added imports
+#include <sstream>
+#define DEBUG_CUDA 1
+// End Dylan
+
+
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
@@ -36,7 +42,7 @@
 #include <visionaray/math/math.h>
 #include <visionaray/texture/texture.h>
 #include <visionaray/aligned_vector.h>
-#include <visionaray/array.h>
+#include <visionaray/math/array.h>
 #include <visionaray/material.h>
 #include <visionaray/packet_traits.h>
 #include <visionaray/pixel_format.h>
@@ -59,6 +65,8 @@
 #include "vvtextureutil.h"
 #include "vvtoolshed.h"
 #include "vvvoldesc.h"
+#include "../../../../Program Files/NVIDIA GPU Computing Toolkit/CUDA/v9.1/include/cuda_runtime_api.h"
+#include "cuda/texture.h"
 
 #ifdef VV_ARCH_CUDA
 #include "cuda/utils.h"
@@ -78,6 +86,8 @@ using transfunc_type    = cuda_texture<vec4,      1>;
 using volume8_type      = cuda_texture<unorm< 8>, 3>;
 using volume16_type     = cuda_texture<unorm<16>, 3>;
 using volume32_type     = cuda_texture<float,     3>;
+using pit_type          = cuda_texture<float, 3>;            // TODO: Create a volume of color values
+using ext_vol_type      = cuda_texture<float, 3>;           // TODO: Utliize this type
 #else
 #if defined(VV_ARCH_SSE2) || defined(VV_ARCH_SSE4_1)
 using ray_type = basic_ray<simd::float4>;
@@ -91,11 +101,230 @@ using transfunc_type    = texture<vec4,      1>;
 using volume8_type      = texture<unorm< 8>, 3>;
 using volume16_type     = texture<unorm<16>, 3>;
 using volume32_type     = texture<float,     3>;
+using pit_type          = texture<float, 3>;                 // TODO: Create a volume of color values
+using ext_vol_type      = texture<float, 3>;                // TODO: Utliize this type
 #endif
 
 //-------------------------------------------------------------------------------------------------
 // Ray type, depends upon target architecture
 //
+
+template <typename T>
+struct SVT
+{
+    void reset(aabbi bbox);
+    void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
+
+    template <typename Tex>
+    void build(Tex transfunc);
+
+    aabbi boundary(aabbi bbox) const;
+
+    T& operator()(int x, int y, int z)
+    {
+        return data_[z * width * height + y * width + x];
+    }
+
+    T& at(int x, int y, int z)
+    {
+        return data_[z * width * height + y * width + x];
+    }
+
+    T const& at(int x, int y, int z) const
+    {
+        return data_[z * width * height + y * width + x];
+    }
+
+    T border_at(int x, int y, int z) const
+    {
+        if (x < 0 || y < 0 || z < 0)
+            return 0;
+
+        return data_[z * width * height + y * width + x];
+    }
+
+    T last() const
+    {
+        return data_.back();
+    }
+
+    T* data()
+    {
+//#if defined(VV_ARCH_CUDA)
+//        return thrust::raw_pointer_cast(data_.data());
+//#else
+        return data_.data();
+//#endif
+        // return data_.data();
+    }
+
+    T const* data() const
+    {
+        return data_.data();
+    }
+
+    T get_count(basic_aabb<int> bounds) const
+    {
+        bounds.min -= vec3i(1);
+        bounds.max -= vec3i(1);
+
+        return border_at(bounds.max.x, bounds.max.y, bounds.max.z)
+            - border_at(bounds.max.x, bounds.max.y, bounds.min.z)
+            - border_at(bounds.max.x, bounds.min.y, bounds.max.z)
+            - border_at(bounds.min.x, bounds.max.y, bounds.max.z)
+            + border_at(bounds.min.x, bounds.min.y, bounds.max.z)
+            + border_at(bounds.min.x, bounds.max.y, bounds.min.z)
+            + border_at(bounds.max.x, bounds.min.y, bounds.min.z)
+            - border_at(bounds.min.x, bounds.min.y, bounds.min.z);
+    }
+
+    // Channel values from volume description
+
+//#if defined(VV_ARCH_CUDA)
+//    thrust::device_vector<float> voxels_;
+//    thrust::device_vector<T> data_;
+//#else
+    std::vector<float> voxels_;
+    std::vector<T> data_;
+//#endif
+    int width;
+    int height;
+    int depth;
+};
+
+template <typename T>
+void SVT<T>::reset(aabbi bbox)
+{
+    data_.resize(bbox.size().x * bbox.size().y * bbox.size().z);
+    width = bbox.size().x;
+    height = bbox.size().y;
+    depth = bbox.size().z;
+}
+
+template <typename T>
+void SVT<T>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
+{
+    voxels_.resize(bbox.size().x * bbox.size().y * bbox.size().z);
+    data_.resize(bbox.size().x * bbox.size().y * bbox.size().z);
+    width = bbox.size().x;
+    height = bbox.size().y;
+    depth = bbox.size().z;
+
+
+    for (int z = 0; z < depth; ++z)
+    {
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                size_t index = z * width * height + y * width + x;
+                voxels_[index] = vd.getChannelValue(0,
+                    bbox.min.x + x,
+                    bbox.min.y + y,
+                    bbox.min.z + z,
+                    channel);
+            }
+        }
+    }
+}
+
+template <typename T>
+template <typename Tex>
+void SVT<T>::build(Tex transfunc)
+{
+    // Apply transfer function
+    for (int z = 0; z < depth; ++z)
+    {
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                size_t index = z * width * height + y * width + x;
+                // My code:
+                float coordinate = voxels_[index];
+                float value = tex1D(transfunc, coordinate).w;
+                at(x, y, z) = value;
+                // End Dylan Code
+                /*
+                if (tex1D(transfunc, voxels_[index]).w < 0.0001)
+                    at(x, y, z) = T(0);
+                else
+                    at(x, y, z) = T(1);
+                */
+            }
+        }
+    }
+
+
+    // Build summed volume table
+
+    // Init 0-border voxel
+    //at(0, 0, 0) = at(0, 0, 0);
+
+    // Init 0-border edges (prefix sum)
+    for (int x = 1; x<width; ++x)
+    {
+        at(x, 0, 0) = at(x, 0, 0) + at(x - 1, 0, 0);
+    }
+
+    for (int y = 1; y<height; ++y)
+    {
+        at(0, y, 0) = at(0, y, 0) + at(0, y - 1, 0);
+    }
+
+    for (int z = 1; z<depth; ++z)
+    {
+        at(0, 0, z) = at(0, 0, z) + at(0, 0, z - 1);
+    }
+
+
+    // Init 0-border planes (summed-area tables)
+    for (int y = 1; y<height; ++y)
+    {
+        for (int x = 1; x<width; ++x)
+        {
+            at(x, y, 0) = at(x, y, 0)
+                + at(x - 1, y, 0) + at(x, y - 1, 0)
+                - at(x - 1, y - 1, 0);
+        }
+    }
+
+    for (int z = 1; z<depth; ++z)
+    {
+        for (int y = 1; y<height; ++y)
+        {
+            at(0, y, z) = at(0, y, z)
+                + at(0, y - 1, z) + at(0, y, z - 1)
+                - at(0, y - 1, z - 1);
+        }
+    }
+
+    for (int x = 1; x<width; ++x)
+    {
+        for (int z = 1; z<depth; ++z)
+        {
+            at(x, 0, z) = at(x, 0, z)
+                + at(x - 1, 0, z) + at(x, 0, z - 1)
+                - at(x - 1, 0, z - 1);
+        }
+    }
+
+
+    // Build up SVT
+    for (int z = 1; z<depth; ++z)
+    {
+        for (int y = 1; y<height; ++y)
+        {
+            for (int x = 1; x<width; ++x)
+            {
+                at(x, y, z) = at(x, y, z) + at(x - 1, y - 1, z - 1)
+                    + at(x - 1, y, z) - at(x, y - 1, z - 1)
+                    + at(x, y - 1, z) - at(x - 1, y, z - 1)
+                    + at(x, y, z - 1) - at(x - 1, y - 1, z);
+            }
+        }
+    }
+}
 
 
 
@@ -590,11 +819,15 @@ struct volume_kernel_params
         AlphaCompositing,
         MaxIntensity,
         MinIntensity,
-        DRR
+        DRR,
+        ShowExtinction,
+        ShowPit,
     };
 
     using clip_object    = variant<clip_plane, clip_sphere, clip_cone>;
     using transfunc_ref  = typename transfunc_type::ref_type;
+    using pit_type_ref   = typename pit_type::ref_type;
+    using ext_vol_type_ref = typename ext_vol_type::ref_type;
 
     clip_box                    bbox;
     float                       delta;
@@ -611,6 +844,12 @@ struct volume_kernel_params
     mat4                        camera_matrix_inv;
     recti                       viewport;
     point_light<float>          light;
+    pit_type_ref                pit;
+    //SVT<float> const*           extinction_volume;
+    ext_vol_type_ref            extinction_volume;
+    float                       ambient_radius;
+    float                       albedo;
+    float                       anisotropy;
 
     struct
     {
@@ -624,11 +863,12 @@ struct volume_kernel_params
 // Visionaray volume rendering kernel
 //
 
-template <typename Volume>
+template <typename Volume, typename Volume32>
 struct volume_kernel
 {
     using Params = volume_kernel_params;
     using VolRef = typename Volume::ref_type;
+    using Vol32Ref = typename Volume::ref_type;
 
     VSNRAY_FUNC
     explicit volume_kernel(Params const& p, VolRef const* vols)
@@ -646,6 +886,22 @@ struct volume_kernel
         using Mask = typename simd::mask_type<S>::type;
         using Mat4 = matrix<4, 4, S>;
         using C    = vector<4, S>;
+
+        // Dylan -- Additional Variables -- ALGO Preconditions (line 1)
+        const float SAMPLING_PLACEHOLDER = 0.7f;
+        const int VOLUME_SIZE = pow(2 * params.ambient_radius + 1, 3);
+        float mean_extinction;
+        S T = 1.f;
+        S tau = 0.f;
+        C L_out;
+        auto L_d_intermediate = params.light.intensity(params.light.position());
+        auto L_d = C(
+            L_d_intermediate.x,
+            L_d_intermediate.y,
+            L_d_intermediate.z,
+            1.0f
+            );
+        // End Dylan
 
         result_record<S> result;
         result.color = C(0.0);
@@ -731,12 +987,44 @@ struct volume_kernel
                         (-pos.z + (params.bbox.size().z / 2) ) / params.bbox.size().z
                         );
 
-                C color(0.0);
+                C color(0.0);                                                               // ALGO line 10
 
-                for (int i = 0; i < params.num_channels; ++i)
+                for (int i = 0; i < params.num_channels; ++i)                               // THIS LOOP CAN BE CONSIDERED TO HAVE ITERATION OF 1
                 {
-                    S voxel  = tex3D(volumes[i], tex_coord);
-                    C colori = tex1D(params.transfuncs[i], voxel);
+                    S voxel = tex3D(volumes[i], tex_coord);                                // ALGO line 5/6
+                    C colori = tex1D(params.transfuncs[i], voxel);                          // ALGO line 7 -- Note: extinction coefficient is colori.w
+
+                    // TODO: Sample Ambient Exctinction Volume      --      ALGO: line 9 -- sigma_hat
+                    /*
+                    float max_x = tex_coord.x + params.ambient_radius;
+                    float min_x = tex_coord.x - params.ambient_radius;
+                    float max_y = tex_coord.y + params.ambient_radius;
+                    float min_y = tex_coord.y - params.ambient_radius;
+                    float max_z = tex_coord.z + params.ambient_radius;
+                    float min_z = tex_coord.z - params.ambient_radius;
+
+                    float XYZ_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, max_z));
+                    float XYz_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, min_z));
+                    float XyZ_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, max_z));
+                    float xYZ_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, max_z));
+                    float Xyz_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, min_z));
+                    float xYz_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, min_z));
+                    float xyZ_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, max_z));
+                    float xyz_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, min_z));
+
+                    mean_extinction = XYZ_corner -
+                                            XYz_corner -
+                                            XyZ_corner - 
+                                            xYZ_corner +
+                                            xyZ_corner +
+                                            Xyz_corner +
+                                            xYz_corner -
+                                            xyz_corner;
+                    mean_extinction /= VOLUME_SIZE;
+                    */
+                    mean_extinction = SAMPLING_PLACEHOLDER;
+                    //float mean_extinction = params.extinction_volume->at(tex_coord.x, tex_coord.y, tex_coord.z);                           // ALGO line 9
+                    //float mean_extinction = params.extinction_volume->get_count(aabb(tex_coord + params.ambient_radius, tex_coord - params.ambient_radius));                           // ALGO line 9
 
                     auto do_shade = params.local_shading && colori.w >= 0.1f;
 
@@ -752,11 +1040,10 @@ struct volume_kernel
                         mat.ks() = 1.0f;
                         mat.specular_exp() = 1000.0f;
 
-
                         // calculate shading
                         auto grad = gradient(volumes[i], tex_coord);
                         auto normal = normalize(grad);
-
+                        
                         auto float_eq = [&](S const& a, S const& b) { return abs(a - b) < params.delta * S(0.5); };
 
                         Mask at_boundary = float_eq(t, hit_rec.tnear);
@@ -795,25 +1082,99 @@ struct volume_kernel
 
                         auto shaded_clr = mat.shade(sr);
 
+                        // TODO: Consider whether this line needs to be commented out
                         colori.xyz() = mul(
                                 colori.xyz(),
                                 to_rgb(shaded_clr),
                                 do_shade,
                                 colori.xyz()
                                 );
+
+
+
+                        // Dylan
+                        
+                        // TODO: sample preint. table and radiance cache       ALGO: lines 15 and 16
+                        
+                        // Handle lighting from light source and sample cached info
+                        auto position_delta = vector<3, S>(
+                            pos.x - params.light.position().x,
+                            pos.y - params.light.position().y,
+                            pos.z - params.light.position().z
+                            );
+                        auto light_dir = normalize(position_delta);                             // ALGO line 12
+
+                        auto scaled_light_direction = vector<3, S>(
+                            params.ambient_radius * light_dir.x,
+                            params.ambient_radius * light_dir.y,
+                            params.ambient_radius * light_dir.z
+                            );
+
+                        S angle = dot(ray.dir, light_dir);
+                        S theta_j = acos(angle);                                                    // ALGO line 14
+
+                        vector<3, S> pit_coordinate = vector<3, S>(
+                            params.anisotropy,
+                            theta_j, 
+                            params.ambient_radius * mean_extinction
+                            );
+                        C L_out(tex3D(params.pit, pit_coordinate));                                // ALGO line 15
+                        
+                        
+                        colori += C(
+                            L_out.x * L_d.x,
+                            L_out.y * L_d.y,
+                            L_out.z * L_d.z,
+                            L_out.w * L_d.w
+                            );                                                                      // ALGO line 17
+
+                        // Update L_d
+                        pit_coordinate = vector<3, S>(
+                            params.anisotropy,
+                            0.f,
+                            static_cast<float>(params.ambient_radius * mean_extinction)
+                            );
+                        C L_out_for_d (tex3D(params.pit, pit_coordinate));
+                        L_d = C(
+                            L_out_for_d.x * L_d.x,
+                            L_out_for_d.y * L_d.y,
+                            L_out_for_d.z * L_d.z,
+                            L_out_for_d.w * L_d.w
+                            );                                                                      // ALGO line 16
+                        // End Dylan
                     }
 
+                    // Conglomerate info and step
+                    const S scattering_coefficient = (S(1.0f) - result.color.w) * S(params.albedo);                   // ALGO line 8
+                    colori.w = scattering_coefficient * params.delta * T;                                           // ALGO line 19 Part A
+
+                    /* Not optional
                     if (params.opacity_correction)
                     {
                         colori.w = 1.0f - pow(1.0f - colori.w, params.delta);
-                    }
+                    }*/
 
                     // premultiplied alpha
                     colori.xyz() *= colori.w;
+                    color += colori;                                                                // ALGO line 19 Part B
 
-                    color += colori;
+                    auto pos_not = vector<3, S>(
+                        pos.x + params.ambient_radius * ray.dir.x,
+                        pos.y + params.ambient_radius * ray.dir.y,
+                        pos.z + params.ambient_radius * ray.dir.z
+                        );                                                                          // pos_not emulates the center of the mesoscopic sphere
+                    auto tex_coord_not = vector<3, S>(
+                        (pos_not.x + (params.bbox.size().x / 2)) / params.bbox.size().x,
+                        (-pos_not.y + (params.bbox.size().y / 2)) / params.bbox.size().y,
+                        (-pos_not.z + (params.bbox.size().z / 2)) / params.bbox.size().z
+                        );
+                    S voxel_not = tex3D(volumes[i], tex_coord_not);
+                    C color_not = tex1D(params.transfuncs[i], voxel_not);                           // ALGO line 20
+
+
+                    tau += color_not.w * S(params.delta);                              // ALGO line 21
+                    T = exp(-tau);                                                  // ALGO line 22
                 }
-
 
                 // compositing
                 if (params.mode == Params::AlphaCompositing)
@@ -854,10 +1215,20 @@ struct volume_kernel
                             C(0.0)
                             );
                 }
-            }
+                else if (params.mode == Params::ShowExtinction)
+                {
+                    result.color = C(result.color.x + mean_extinction, result.color.x + mean_extinction, result.color.x + mean_extinction, 0.5);
+                    //result.color = C(1.f, 1.f, 1.f, result.color.w + mean_extinction);
+                }
 
+                else if (params.mode == Params::ShowPit)
+                {
+                    //result.color = C(0.0, 0.0, 0.0, 1.0);
+                    result.color += L_out;
+                }
+            }
             // step on
-            t = tnext;
+            t = tnext;                                          // ALGO line 23
         }
 
         result.hit = hit_rec.hit;
@@ -897,6 +1268,10 @@ struct vvRayCaster::Impl
 
     sched_type                      sched;
     params_type                     params;
+    pit_type                        pit;
+    SVT<float>                      extinction_volume_svt;
+    ext_vol_type                    extinction_volume_texture;
+    //ext_vol_type                  extinction_volume_svt;
     std::vector<volume8_type>       volumes8;
     std::vector<volume16_type>      volumes16;
     std::vector<volume32_type>      volumes32;
@@ -906,13 +1281,13 @@ struct vvRayCaster::Impl
     // Internal storage format for textures
     virvo::PixelFormat              texture_format = virvo::PF_R8;
 
+    void loadPreintegrationTable(float albedo);
     void updateVolumeTextures(vvVolDesc* vd, vvRenderer* renderer);
     void updateTransfuncTexture(vvVolDesc* vd, vvRenderer* renderer);
 
     template <typename Volumes>
     void updateVolumeTexturesImpl(vvVolDesc* vd, vvRenderer* renderer, Volumes& volume);
 };
-
 
 void vvRayCaster::Impl::updateVolumeTextures(vvVolDesc* vd, vvRenderer* renderer)
 {
@@ -943,6 +1318,12 @@ void vvRayCaster::Impl::updateTransfuncTexture(vvVolDesc* vd, vvRenderer* /*rend
         transfuncs[i].set_address_mode(Clamp);
         transfuncs[i].set_filter_mode(Nearest);
     }
+
+    /*  THESE METHODS NEED TO BE DONE ON TEXTURE/CUDA_TEXTURE OBJECTS
+    params.extinction_volume.reset(extinction_volume_svt.data());
+    params.extinction_volume.set_address_mode(Clamp);
+    params.extinction_volume.set_filter_mode(Nearest);
+    */
 }
 
 template <typename Volumes>
@@ -982,6 +1363,141 @@ void vvRayCaster::Impl::updateVolumeTexturesImpl(vvVolDesc* vd, vvRenderer* rend
 
 
 //-------------------------------------------------------------------------------------------------
+// Load Preintegration Table
+//
+
+void vvRayCaster::Impl::loadPreintegrationTable(float albedo)
+{
+    std::vector<float> pit_data;
+    const int albedo_flag = static_cast<int>(albedo * 10);
+    FILE* fp;
+    int			m_sigmat_res;			// resolution of ambient extinction coefficient 
+    int			m_theta_res;			// resolution of angular bins
+    for (int i = 1; i < 20; i++)
+    {
+        std::stringstream stream;
+        stream << "E:/Research Workspace/research resources/AVSTableAlbedo0"<< albedo_flag <<"/AVSTable2D_a0" << albedo_flag << "_g";
+        if (i < 10) {
+            stream << '-';
+        }
+
+        stream << "0" << abs(10 - i) << ".tab";
+        std::string filename = stream.str();
+        fp = fopen(filename.c_str(), "rb");
+
+        if (fp == nullptr) {
+            std::cout << "Could not load from file: " << filename << std::endl;
+            throw;
+        }
+
+
+        float		m_a;					// albedo
+        float		m_g;					// anisotropy parameter for Henyey-Greenstein phase function
+        int			m_N;					// number of path samples
+        
+        float		m_sigmat_min;			// minimum value of ambient extinction coefficient
+        float		m_sigmat_max;			// maximum value of ambient extinction coefficient
+        float		m_sphere_r;				// radius of sphere 
+        float*		m_L;					// radiance data (theta, sigmat)
+
+                                            // table parameters
+
+
+        fread(&m_a, sizeof(float), 1, fp);
+        fread(&m_g, sizeof(float), 1, fp);
+        fread(&m_N, sizeof(int), 1, fp);
+        fread(&m_sigmat_res, sizeof(int), 1, fp);
+        fread(&m_theta_res, sizeof(int), 1, fp);
+        fread(&m_sigmat_min, sizeof(float), 1, fp);
+        fread(&m_sigmat_max, sizeof(float), 1, fp);
+        fread(&m_sphere_r, sizeof(float), 1, fp);
+
+        // radiance data
+        // m_L = new float[m_theta_res * m_sigmat_res];
+        size_t old_size = pit_data.size();
+        pit_data.resize(pit_data.size() + m_theta_res * m_sigmat_res);
+        fread(pit_data.data() + old_size, sizeof(float), m_sigmat_res * m_theta_res, fp);      // NOTE: Added * 3 term for color channels
+
+        
+        // TODO: Figure out how to fill the volume with the preintegration table
+        // m_L represents a single layer of values
+        /*
+        for (int i = 0; i < m_theta_res * m_sigmat_res; i++)
+        {
+            //vec4 color(m_L[i], 1.0f);
+            //pit_data.push_back(m_L[i]);
+        }*/
+        //delete[] m_L;
+        fclose(fp);
+    }
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
+
+    pit = pit_type(19, m_theta_res, m_sigmat_res);
+    pit.reset(&pit_data[0]);
+    pit.set_address_mode(Clamp);
+    pit.set_filter_mode(Nearest);
+}
+
+float* createExtinctionVolume(vvVolDesc* vd, transfunc_type transfunc, int radius)
+{
+    const int volume = pow(radius * 2 + 1, 1);
+    std::vector<std::vector<std::vector<float>>> table;
+
+    // table resizing
+    table.resize(vd->vox[0]);
+    for (int i = 0; i < vd->vox[0]; i++)
+    {
+        table[i].resize(vd->vox[1]);
+
+        for (int j = 0; j < vd->vox[1]; j++)
+        {
+            table[i][j].resize(vd->vox[2]);
+        }
+    }
+
+    for (int i = 0; i < vd->vox[0]; i++)
+    {
+        for (int j = 0; j < vd->vox[1]; j++)
+        {
+            for (int k = 0; k < vd->vox[2]; k++)
+            {
+                // regions
+                for (int i_delta = -radius; i_delta <= radius; i_delta++)
+                {
+                    int neighbor_i = i + i_delta;
+                    neighbor_i = max(neighbor_i, 0);
+                    neighbor_i = min(neighbor_i, static_cast<int>(vd->vox[0]) - 1);
+                    for (int j_delta = -radius; j_delta <= radius; j_delta++)
+                    {
+                        int neighbor_j = j + j_delta;
+                        neighbor_j = max(neighbor_j, 0);
+                        neighbor_j = min(neighbor_j, static_cast<int>(vd->vox[1]) - 1);
+                        for (int k_delta = -radius; k_delta <= radius; k_delta++)
+                        {
+                            int neighbor_k = k + k_delta;
+                            neighbor_k = max(neighbor_k, 0);
+                            neighbor_k = min(neighbor_k, static_cast<int>(vd->vox[2]) - 1);
+
+                            // Sum mean neighbor
+                            // SO CLOSE!!!
+                            // TODO: This seems wrong...
+
+                            table[i][j][k] += vd->getChannelValue(0, neighbor_i, neighbor_j, neighbor_k, 0) / volume;
+                            //table[i][j][k] += transfunc(vd->getChannelValue(0, neighbor_i, neighbor_j, neighbor_k, 0)) / volume;
+                            //table[i][j][k] += ((*vd)(0, neighbor_i, neighbor_j, neighbor_k)).w / volume;
+                            //table[i][j][k] += transfunc((*vd)(0, neighbor_i, neighbor_j, neighbor_k)).w / volume;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return &(table[0][0][0]);
+}
+
+//-------------------------------------------------------------------------------------------------
 // Public interface
 //
 
@@ -1007,6 +1523,47 @@ vvRayCaster::vvRayCaster(vvVolDesc* vd, vvRenderState renderState)
 #else
     setRenderTarget(virvo::HostBufferRT::create(virvo::PF_RGBA32F, virvo::PF_UNSPECIFIED));
 #endif
+
+    // Handle Preintegration tables
+
+    // Dylan Added Code:
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+
+    impl_->params.albedo = 0.9;
+    impl_->params.anisotropy = 0.0f;
+    impl_->params.ambient_radius = 1;      //impl_->params.delta / 4;
+    impl_->loadPreintegrationTable(impl_->params.albedo);
+    impl_->params.pit = typename pit_type::ref_type(impl_->pit);
+    
+    // TODO: Move extinction volume code to be handled whenever the transfer function is updated
+    
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
+    impl_->extinction_volume_svt = SVT<float>();
+    virvo::aabb vd_bb = vd->getBoundingBox();
+    aabbi bounding_box;
+    bounding_box.min = vec3i(0, 0, 0);
+    bounding_box.max = vec3i(vd->getBoundingBox().size().x, vd->getBoundingBox().size().y, vd->getBoundingBox().size().z);
+    impl_->extinction_volume_svt.reset(vd, bounding_box);
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
+    impl_->extinction_volume_texture = ext_vol_type(vd->getSize().x, vd->getSize().y, vd->getSize().z);// vd->getSize().x, vd->getSize().y, vd->getSize().z);
+    impl_->extinction_volume_texture.reset(impl_->extinction_volume_svt.data());
+    impl_->extinction_volume_texture.set_address_mode(Clamp);
+    impl_->extinction_volume_texture.set_filter_mode(Nearest);
+
+    impl_->params.extinction_volume = typename ext_vol_type::ref_type(impl_->extinction_volume_texture);
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
+    
+    // TODO: Add extinction volume stuff
+    //impl_->params.extinction_volume_svt.reset(createExtinctionVolume(vd, impl_->params.transfuncs[0], impl_->params.ambient_radius));
+
+
+    // Dylan End
 
     updateVolumeData();
     updateTransferFunction();
@@ -1190,6 +1747,11 @@ void vvRayCaster::renderVolumeGL()
 
 #ifdef VV_ARCH_CUDA
     // TODO: consolidate!
+    //std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
     thrust::device_vector<typename volume8_type::ref_type>  device_volumes8;
     auto volumes8_data = [&]()
     {
@@ -1200,7 +1762,9 @@ void vvRayCaster::renderVolumeGL()
         }
         return thrust::raw_pointer_cast(device_volumes8.data());
     };
-
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
     thrust::device_vector<typename volume16_type::ref_type> device_volumes16;
     auto volumes16_data = [&]()
     {
@@ -1212,6 +1776,9 @@ void vvRayCaster::renderVolumeGL()
         return thrust::raw_pointer_cast(device_volumes16.data());
     };
 
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
     thrust::device_vector<typename volume32_type::ref_type> device_volumes32;
     auto volumes32_data = [&]()
     {
@@ -1225,15 +1792,22 @@ void vvRayCaster::renderVolumeGL()
 
     std::vector<typename transfunc_type::ref_type> trefs;
     for (const auto &tf : impl_->transfuncs)
+    {
         trefs.push_back(tf);
-    thrust::device_vector<typename transfunc_type::ref_type> device_transfuncs(trefs);
+    }
 
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
+    thrust::device_vector<typename transfunc_type::ref_type> device_transfuncs(trefs);
     auto transfuncs_data = [&]()
     {
         return thrust::raw_pointer_cast(device_transfuncs.data());
     };
 
+#if DEBUG_CUDA
     thrust::device_vector<vec2> device_ranges;
+#endif
     auto ranges_data = [&]()
     {
         for (int c = 0; c < vd->getChan(); ++c)
@@ -1243,7 +1817,7 @@ void vvRayCaster::renderVolumeGL()
 
         return thrust::raw_pointer_cast(device_ranges.data());
     };
-
+    
     thrust::device_vector<typename Impl::params_type::clip_object> device_objects(clip_objects);
     auto clip_objects_begin = [&]()
     {
@@ -1254,6 +1828,7 @@ void vvRayCaster::renderVolumeGL()
     {
         return clip_objects_begin() + device_objects.size();
     };
+
 #else
     aligned_vector<typename volume8_type::ref_type>  host_volumes8;
     auto volumes8_data = [&]()
@@ -1320,16 +1895,22 @@ void vvRayCaster::renderVolumeGL()
     };
 #endif
 
-
     // assemble volume kernel params and call kernel
     impl_->params.bbox                      = clip_box( vec3(bbox.min.data()), vec3(bbox.max.data()) );
     impl_->params.delta                     = delta;
     impl_->params.num_channels              = vd->getChan();
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
     impl_->params.transfuncs                = transfuncs_data();
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
     impl_->params.ranges                    = ranges_data();
     impl_->params.depth_buffer              = impl_->depth_buffer.data();
     impl_->params.depth_format              = depth_format;
-    impl_->params.mode                      = Impl::params_type::projection_mode(getParameter(VV_MIP_MODE).asInt());
+    // TODO: Put this code back
+    impl_->params.mode                      = Impl::params_type::ShowExtinction; //Impl::params_type::projection_mode(getParameter(VV_MIP_MODE).asInt());
     impl_->params.depth_test                = depth_test;
     impl_->params.opacity_correction        = getParameter(VV_OPCORR);
     impl_->params.early_ray_termination     = getParameter(VV_TERMINATEEARLY);
@@ -1339,20 +1920,32 @@ void vvRayCaster::renderVolumeGL()
     impl_->params.light                     = light;
     impl_->params.clip_objects.begin        = clip_objects_begin();
     impl_->params.clip_objects.end          = clip_objects_end();
+#if DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
 
     if (impl_->texture_format == virvo::PF_R8)
     {
-        volume_kernel<volume8_type> kernel(impl_->params, volumes8_data());
+#if DEBUG_CUDA
+        std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
+        volume_kernel<volume8_type, volume32_type> kernel(impl_->params, volumes8_data());
         impl_->sched.frame(kernel, sparams);
     }
     else if (impl_->texture_format == virvo::PF_R16UI)
-    {
-        volume_kernel<volume16_type> kernel(impl_->params, volumes16_data());
+    { 
+#if DEBUG_CUDA
+        std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
+        volume_kernel<volume16_type, volume32_type> kernel(impl_->params, volumes16_data());
         impl_->sched.frame(kernel, sparams);
     }
     else if (impl_->texture_format == virvo::PF_R32F)
     {
-        volume_kernel<volume32_type> kernel(impl_->params, volumes32_data());
+#if DEBUG_CUDA
+        std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
+        volume_kernel<volume32_type, volume32_type> kernel(impl_->params, volumes32_data());
         impl_->sched.frame(kernel, sparams);
     }
 
@@ -1365,6 +1958,14 @@ void vvRayCaster::renderVolumeGL()
 void vvRayCaster::updateTransferFunction()
 {
     impl_->updateTransfuncTexture(vd, this);
+
+    std::vector<typename transfunc_type::ref_type> trefs;
+    for (const auto &tf : impl_->transfuncs)
+    {
+        trefs.push_back(tf);
+    }
+    impl_->extinction_volume_svt.build(trefs[0]);
+    
 }
 
 void vvRayCaster::updateVolumeData()
