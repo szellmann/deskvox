@@ -115,7 +115,7 @@ struct SVT
     void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
     template <typename Tex>
-    void build(Tex transfunc);
+    void build(Tex transfunc, std::vector<vec4> values_as_vector);
 
     aabbi boundary(aabbi bbox) const;
 
@@ -229,7 +229,7 @@ void SVT<T>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 
 template <typename T>
 template <typename Tex>
-void SVT<T>::build(Tex transfunc)
+void SVT<T>::build(Tex transfunc, std::vector<vec4> values_as_vector)
 {
     // Apply transfer function
     for (int z = 0; z < depth; ++z)
@@ -241,7 +241,21 @@ void SVT<T>::build(Tex transfunc)
                 size_t index = z * width * height + y * width + x;
                 // My code:
                 float coordinate = voxels_[index];
-                float value = tex1D(transfunc, coordinate).w;
+
+                /*
+                vec4 color = tex1D(transfunc, coordinate);
+                vec4 color1 = tex1D(transfunc, 0.f);
+                vec4 color2 = tex1D(transfunc, 0.25f);
+                vec4 color3 = tex1D(transfunc, 0.5f);
+                vec4 color4 = tex1D(transfunc, 1.f);
+                vec4 color5 = tex1D(transfunc, 125.f);
+                float value = color.w;
+                */
+
+                // Texture holds garbage values -- use the values_as_vector
+                coordinate *= values_as_vector.size() - 1;
+                float first_weight = 1 - (coordinate - static_cast<int>(coordinate));
+                float value = first_weight * values_as_vector[static_cast<int>(coordinate)].w + (1 - first_weight) * values_as_vector[min(static_cast<int>(coordinate) + 1, static_cast<int>(values_as_vector.size())-1)].w;
                 at(x, y, z) = value;
                 // End Dylan Code
                 /*
@@ -994,13 +1008,13 @@ struct volume_kernel
                     C colori = tex1D(params.transfuncs[i], voxel);                          // ALGO line 7 -- Note: extinction coefficient is colori.w
 
                     // TODO: Sample Ambient Exctinction Volume      --      ALGO: line 9 -- sigma_hat
-                    /*
-                    float max_x = tex_coord.x + params.ambient_radius;
-                    float min_x = tex_coord.x - params.ambient_radius;
-                    float max_y = tex_coord.y + params.ambient_radius;
-                    float min_y = tex_coord.y - params.ambient_radius;
-                    float max_z = tex_coord.z + params.ambient_radius;
-                    float min_z = tex_coord.z - params.ambient_radius;
+                    
+                    float max_x = tex_coord.x + params.ambient_radius / params.bbox.size().x;
+                    float min_x = tex_coord.x - params.ambient_radius / params.bbox.size().x;
+                    float max_y = tex_coord.y + params.ambient_radius / params.bbox.size().y;
+                    float min_y = tex_coord.y - params.ambient_radius / params.bbox.size().y;
+                    float max_z = tex_coord.z + params.ambient_radius / params.bbox.size().z;
+                    float min_z = tex_coord.z - params.ambient_radius / params.bbox.size().z;
 
                     float XYZ_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, max_z));
                     float XYz_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, min_z));
@@ -1020,8 +1034,10 @@ struct volume_kernel
                                             xYz_corner -
                                             xyz_corner;
                     mean_extinction /= VOLUME_SIZE;
-                    */
-                    mean_extinction = SAMPLING_PLACEHOLDER;
+
+                    // TODO: DELETE THIS
+                    //mean_extinction = tex_coord.x;
+                    //mean_extinction = SAMPLING_PLACEHOLDER;
                     //float mean_extinction = params.extinction_volume->at(tex_coord.x, tex_coord.y, tex_coord.z);                           // ALGO line 9
                     //float mean_extinction = params.extinction_volume->get_count(aabb(tex_coord + params.ambient_radius, tex_coord - params.ambient_radius));                           // ALGO line 9
 
@@ -1216,7 +1232,7 @@ struct volume_kernel
                 }
                 else if (params.mode == Params::ShowExtinction)
                 {
-                    result.color = C(result.color.x + mean_extinction, result.color.x + mean_extinction, result.color.x + mean_extinction, 0.5);
+                    result.color = C(result.color.x + mean_extinction, result.color.x + mean_extinction, result.color.x + mean_extinction, 1.0);
                     //result.color = C(1.f, 1.f, 1.f, result.color.w + mean_extinction);
                 }
 
@@ -1229,7 +1245,11 @@ struct volume_kernel
             // step on
             t = tnext;                                          // ALGO line 23
         }
-
+        if (params.mode == Params::ShowExtinction)
+        {
+            // Invert white and black (white means highly ambient and black means heavily dense
+            result.color = C(1 - result.color.x, 1 - result.color.y, 1 - result.color.z, 1.0);
+        }
         result.hit = hit_rec.hit;
         return result;
     }
@@ -1274,6 +1294,8 @@ struct vvRayCaster::Impl
     std::vector<volume8_type>       volumes8;
     std::vector<volume16_type>      volumes16;
     std::vector<volume32_type>      volumes32;
+    //transfunc_cpu_type            cpu_transfunc;
+    std::vector<vec4>              transfunc_values;
     std::vector<transfunc_type>     transfuncs;
     depth_buffer_type               depth_buffer;
 
@@ -1311,12 +1333,27 @@ void vvRayCaster::Impl::updateTransfuncTexture(vvVolDesc* vd, vvRenderer* /*rend
     {
         aligned_vector<vec4> tf(256 * 1 * 1);
         vd->computeTFTexture(i, 256, 1, 1, reinterpret_cast<float*>(tf.data()));
-
+        
         transfuncs[i] = transfunc_type(tf.size());
         transfuncs[i].reset(tf.data());
         transfuncs[i].set_address_mode(Clamp);
         transfuncs[i].set_filter_mode(Nearest);
+        
+        transfunc_values.resize(tf.size());
+        for (int i = 0; i < tf.size(); i++)
+        {
+            transfunc_values[i] = tf[i];
+        }
+        /*
+        if (i == 0)
+        {
+            cpu_transfunc = transfunc_cpu_type(tf.size());
+            cpu_transfunc.reset(tf.data());
+            cpu_transfunc.set_address_mode(Clamp);
+            cpu_transfunc.set_filter_mode(Nearest);
+        }*/
     }
+    
 
     /*  THESE METHODS NEED TO BE DONE ON TEXTURE/CUDA_TEXTURE OBJECTS
     params.extinction_volume.reset(extinction_volume_svt.data());
@@ -1959,17 +1996,41 @@ void vvRayCaster::updateTransferFunction()
     impl_->updateTransfuncTexture(vd, this);
 
     std::vector<typename transfunc_type::ref_type> trefs;
+    //transfunc_type::ref_type tref = typename transfunc_cpu_type::ref_type(impl_->cpu_transfunc);
     for (const auto &tf : impl_->transfuncs)
     {
         trefs.push_back(tf);
     }
-    impl_->extinction_volume_svt.build(trefs[0]);
+    
+    impl_->extinction_volume_svt.build(trefs[0], impl_->transfunc_values);
+    impl_->extinction_volume_texture.reset(impl_->extinction_volume_svt.data());
+    impl_->extinction_volume_texture.set_address_mode(Clamp);
+    impl_->extinction_volume_texture.set_filter_mode(Nearest);
+
+    impl_->params.extinction_volume = typename ext_vol_type::ref_type(impl_->extinction_volume_texture);
     
 }
 
 void vvRayCaster::updateVolumeData()
 {
     impl_->updateVolumeTextures(vd, this);
+
+    std::vector<typename transfunc_type::ref_type> trefs;
+    //transfunc_type::ref_type tref = typename transfunc_cpu_type::ref_type(impl_->cpu_transfunc);
+    for (const auto &tf : impl_->transfuncs)
+    {
+        trefs.push_back(tf);
+    }
+    if (trefs.size() > 0)
+    {
+        impl_->extinction_volume_svt.reset(vd, aabbi(vec3i(0), vec3i(vd->vox.x, vd->vox.y, vd->vox.z)));
+        impl_->extinction_volume_svt.build(trefs[0], impl_->transfunc_values);
+        impl_->extinction_volume_texture.reset(impl_->extinction_volume_svt.data());
+        impl_->extinction_volume_texture.set_address_mode(Clamp);
+        impl_->extinction_volume_texture.set_filter_mode(Nearest);
+
+        impl_->params.extinction_volume = typename ext_vol_type::ref_type(impl_->extinction_volume_texture);
+    }
 }
 
 bool vvRayCaster::checkParameter(ParameterType param, vvParam const& value) const
