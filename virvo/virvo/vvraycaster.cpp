@@ -108,6 +108,20 @@ using ext_vol_type      = texture<float, 3>;                // TODO: Utliize thi
 // Ray type, depends upon target architecture
 //
 
+
+//-------------------------------------------------------------------------------------------------
+// Ray type, depends upon target architecture
+//
+
+struct RadianceCache
+{
+    // TODO: Add and integrate implementation
+};
+
+//-------------------------------------------------------------------------------------------------
+// SVT
+//
+
 template <typename T>
 struct SVT
 {
@@ -917,7 +931,7 @@ struct volume_kernel
             );
         int ray_count = 0;
         // End Dylan
-
+        
         result_record<S> result;
         result.color = C(0.0);
 
@@ -1010,32 +1024,33 @@ struct volume_kernel
                     C colori = tex1D(params.transfuncs[i], voxel);                          // ALGO line 7 -- Note: extinction coefficient is colori.w
 
                     // TODO: Sample Ambient Exctinction Volume      --      ALGO: line 9 -- sigma_hat
-                    
-                    float max_x = tex_coord.x + params.ambient_radius / params.bbox.size().x;
-                    float min_x = tex_coord.x - params.ambient_radius / params.bbox.size().x;
-                    float max_y = tex_coord.y + params.ambient_radius / params.bbox.size().y;
-                    float min_y = tex_coord.y - params.ambient_radius / params.bbox.size().y;
-                    float max_z = tex_coord.z + params.ambient_radius / params.bbox.size().z;
-                    float min_z = tex_coord.z - params.ambient_radius / params.bbox.size().z;
+                    {   // put in compound statement to avoid compiler warning about overriding variable names
+                        float max_x = tex_coord.x + params.ambient_radius / params.bbox.size().x;
+                        float min_x = tex_coord.x - params.ambient_radius / params.bbox.size().x;
+                        float max_y = tex_coord.y + params.ambient_radius / params.bbox.size().y;
+                        float min_y = tex_coord.y - params.ambient_radius / params.bbox.size().y;
+                        float max_z = tex_coord.z + params.ambient_radius / params.bbox.size().z;
+                        float min_z = tex_coord.z - params.ambient_radius / params.bbox.size().z;
 
-                    float XYZ_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, max_z));
-                    float XYz_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, min_z));
-                    float XyZ_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, max_z));
-                    float xYZ_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, max_z));
-                    float Xyz_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, min_z));
-                    float xYz_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, min_z));
-                    float xyZ_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, max_z));
-                    float xyz_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, min_z));
+                        float XYZ_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, max_z));
+                        float XYz_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, min_z));
+                        float XyZ_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, max_z));
+                        float xYZ_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, max_z));
+                        float Xyz_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, min_z));
+                        float xYz_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, min_z));
+                        float xyZ_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, max_z));
+                        float xyz_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, min_z));
 
-                    mean_extinction = XYZ_corner -
-                                      XYz_corner -
-                                      XyZ_corner - 
-                                      xYZ_corner +
-                                      xyZ_corner +
-                                      Xyz_corner +
-                                      xYz_corner -
-                                      xyz_corner;
-                    mean_extinction /= VOLUME_SIZE;
+                        mean_extinction = XYZ_corner -
+                                          XYz_corner -
+                                          XyZ_corner - 
+                                          xYZ_corner +
+                                          xyZ_corner +
+                                          Xyz_corner +
+                                          xYz_corner -
+                                          xyz_corner;
+                        mean_extinction /= VOLUME_SIZE;
+                    }
                     ++ray_count;
 
                     // TODO: DELETE THIS
@@ -1089,7 +1104,7 @@ struct volume_kernel
                         }
 
                         do_shade &= length(grad) != 0.0f;
-
+                        
                         shade_record<S> sr;
                         sr.normal = normal;
                         sr.geometric_normal = normal;
@@ -1135,6 +1150,88 @@ struct volume_kernel
                         // ALGO line 15
                         S radiance(tex3D(params.pit, pit_coordinate));
                         L_out = C(radiance);
+                        
+                        // Calculate the Radiance from the light source to the current position
+                        vec3 light_ray_pos = params.light.position();                                       // Start at the light position
+                        vector<3, S> light_intensity = params.light.intensity(pos);
+                        
+                        L_d = C(light_intensity.x, light_intensity.y, light_intensity.z, 1.0);
+
+                        // TODO: This does not use linear interpolation to mititgate mid-sphere values
+                        while (dot(light_ray_pos - params.light.position(), light_ray_pos - params.light.position()) < dot(pos - params.light.position(), pos - params.light.position()))
+                        {
+                            light_ray_pos += 2 * params.ambient_radius * light_omega;    //shoot to the center of the next circle
+                            auto light_ray_coordinate = vector<3, S>(
+                                (light_ray_pos.x + (params.bbox.size().x / 2)) / params.bbox.size().x,
+                                (-light_ray_pos.y + (params.bbox.size().y / 2)) / params.bbox.size().y,
+                                (-light_ray_pos.z + (params.bbox.size().z / 2)) / params.bbox.size().z
+                                );
+
+                            // if light_ray_pos within the bounds of the volume:
+                            if (light_ray_coordinate.x >= 0 && light_ray_coordinate.y >= 0 && light_ray_coordinate.z >= 0 &&
+                                light_ray_coordinate.x <= 1 && light_ray_coordinate.y <= 1 && light_ray_coordinate.z <= 1)
+                            {
+                                // sample light_position_mean_extinction(light_ray_pos)
+                                float max_x = tex_coord.x + params.ambient_radius / params.bbox.size().x;
+                                float min_x = tex_coord.x - params.ambient_radius / params.bbox.size().x;
+                                float max_y = tex_coord.y + params.ambient_radius / params.bbox.size().y;
+                                float min_y = tex_coord.y - params.ambient_radius / params.bbox.size().y;
+                                float max_z = tex_coord.z + params.ambient_radius / params.bbox.size().z;
+                                float min_z = tex_coord.z - params.ambient_radius / params.bbox.size().z;
+
+                                float XYZ_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, max_z));
+                                float XYz_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, min_z));
+                                float XyZ_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, max_z));
+                                float xYZ_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, max_z));
+                                float Xyz_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, min_z));
+                                float xYz_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, min_z));
+                                float xyZ_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, max_z));
+                                float xyz_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, min_z));
+
+                                float light_pos_mean_extinction = XYZ_corner -
+                                                                  XYz_corner -
+                                                                  XyZ_corner - 
+                                                                  xYZ_corner +
+                                                                  xyZ_corner +
+                                                                  Xyz_corner +
+                                                                  xYz_corner -
+                                                                  xyz_corner;
+                                light_pos_mean_extinction /= VOLUME_SIZE;
+                                
+                                // sample light_position_pit (anisotropy, 0 (for light theta), r * light_position_mean_extinction)
+                                vector<3, S> light_pit_coordinate = vector<3, S>(
+                                    (params.anisotropy + 10) / 19,
+                                    0,
+                                    params.ambient_radius * mean_extinction / 20
+                                    );
+
+                                S light_path_radiance(tex3D(params.pit, light_pit_coordinate));
+                                L_d = L_d * C(light_path_radiance);
+                            }
+                        }
+
+                        // TODO: Need to create code for L_d
+                        /*
+                        // Update L_d -- I think this is just wrong... :(
+                        vector<3, S> pit_coordinate_2 = vector<3, S>(
+                        (params.anisotropy + 10) / 19,
+                        0,
+                        params.ambient_radius * mean_extinction / 20
+                        );
+                        C L_out_for_d (tex3D(params.pit, pit_coordinate_2));
+                        L_d = C(
+                        L_out_for_d.x * L_d.x,
+                        L_out_for_d.y * L_d.y,
+                        L_out_for_d.z * L_d.z,
+                        L_out_for_d.w * L_d.w
+                        );                                                                      // ALGO line 16
+                        */
+
+                        
+                        
+
+
+                        // Multiply light radiance by view radiance
                         colori += C(
                             L_out.x * L_d.x,
                             L_out.y * L_d.y,
@@ -1142,19 +1239,6 @@ struct volume_kernel
                             L_out.w * L_d.w
                             );                                                                      // ALGO line 17
 
-                        // Update L_d -- I think this is just wrong... :(
-                        vector<3, S> pit_coordinate_2 = vector<3, S>(
-                            (params.anisotropy + 10) / 19,
-                            0,
-                            params.ambient_radius * mean_extinction / 20
-                            );
-                        C L_out_for_d (tex3D(params.pit, pit_coordinate_2));
-                        L_d = C(
-                            L_out_for_d.x * L_d.x,
-                            L_out_for_d.y * L_d.y,
-                            L_out_for_d.z * L_d.z,
-                            L_out_for_d.w * L_d.w
-                            );                                                                      // ALGO line 16
                         // End Dylan
                     }
 
@@ -1345,22 +1429,7 @@ void vvRayCaster::Impl::updateTransfuncTexture(vvVolDesc* vd, vvRenderer* /*rend
         {
             transfunc_values[i] = tf[i];
         }
-        /*
-        if (i == 0)
-        {
-            cpu_transfunc = transfunc_cpu_type(tf.size());
-            cpu_transfunc.reset(tf.data());
-            cpu_transfunc.set_address_mode(Clamp);
-            cpu_transfunc.set_filter_mode(Nearest);
-        }*/
     }
-    
-
-    /*  THESE METHODS NEED TO BE DONE ON TEXTURE/CUDA_TEXTURE OBJECTS
-    params.extinction_volume.reset(extinction_volume_svt.data());
-    params.extinction_volume.set_address_mode(Clamp);
-    params.extinction_volume.set_filter_mode(Nearest);
-    */
 }
 
 template <typename Volumes>
@@ -1474,7 +1543,7 @@ void vvRayCaster::Impl::loadPreintegrationTable(float albedo)
     pit = pit_type(19, m_theta_res, m_sigmat_res);
     pit.reset(&pit_data[0]);
     pit.set_address_mode(Clamp);
-    pit.set_filter_mode(Nearest);
+    pit.set_filter_mode(Linear);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1532,7 +1601,7 @@ vvRayCaster::vvRayCaster(vvVolDesc* vd, vvRenderState renderState)
     impl_->extinction_volume_texture = ext_vol_type(vd->getSize().x, vd->getSize().y, vd->getSize().z);// vd->getSize().x, vd->getSize().y, vd->getSize().z);
     impl_->extinction_volume_texture.reset(impl_->extinction_volume_svt.data());
     impl_->extinction_volume_texture.set_address_mode(Clamp);
-    impl_->extinction_volume_texture.set_filter_mode(Nearest);
+    impl_->extinction_volume_texture.set_filter_mode(Linear);
 
     impl_->params.extinction_volume = typename ext_vol_type::ref_type(impl_->extinction_volume_texture);
 #if DEBUG_CUDA
@@ -1889,8 +1958,9 @@ void vvRayCaster::renderVolumeGL()
     impl_->params.ranges                    = ranges_data();
     impl_->params.depth_buffer              = impl_->depth_buffer.data();
     impl_->params.depth_format              = depth_format;
-    // TODO: Put this code back
-    impl_->params.mode                      = Impl::params_type::ShowPit; //Impl::params_type::projection_mode(getParameter(VV_MIP_MODE).asInt());
+    // For debugging
+    //impl_->params.mode                      = Impl::params_type::ShowRadianceCache;
+    impl_->params.mode                      = Impl::params_type::projection_mode(getParameter(VV_MIP_MODE).asInt());
     impl_->params.depth_test                = depth_test;
     impl_->params.opacity_correction        = getParameter(VV_OPCORR);
     impl_->params.early_ray_termination     = getParameter(VV_TERMINATEEARLY);
@@ -1949,7 +2019,7 @@ void vvRayCaster::updateTransferFunction()
     impl_->extinction_volume_svt.build(trefs[0], impl_->transfunc_values);
     impl_->extinction_volume_texture.reset(impl_->extinction_volume_svt.data());
     impl_->extinction_volume_texture.set_address_mode(Clamp);
-    impl_->extinction_volume_texture.set_filter_mode(Nearest);
+    impl_->extinction_volume_texture.set_filter_mode(Linear);
 
     impl_->params.extinction_volume = typename ext_vol_type::ref_type(impl_->extinction_volume_texture);
     
@@ -1971,7 +2041,7 @@ void vvRayCaster::updateVolumeData()
         impl_->extinction_volume_svt.build(trefs[0], impl_->transfunc_values);
         impl_->extinction_volume_texture.reset(impl_->extinction_volume_svt.data());
         impl_->extinction_volume_texture.set_address_mode(Clamp);
-        impl_->extinction_volume_texture.set_filter_mode(Nearest);
+        impl_->extinction_volume_texture.set_filter_mode(Linear);
 
         impl_->params.extinction_volume = typename ext_vol_type::ref_type(impl_->extinction_volume_texture);
     }
