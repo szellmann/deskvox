@@ -835,6 +835,7 @@ struct volume_kernel_params
         DRR,
         ShowExtinction,
         ShowPit,
+        ShowRadianceCache,
     };
 
     using clip_object    = variant<clip_plane, clip_sphere, clip_cone>;
@@ -1117,25 +1118,23 @@ struct volume_kernel
                             pos.y - params.light.position().y,
                             pos.z - params.light.position().z
                             );
-                        auto light_dir = normalize(position_delta);                             // ALGO line 12
-
-                        auto scaled_light_direction = vector<3, S>(
-                            params.ambient_radius * light_dir.x,
-                            params.ambient_radius * light_dir.y,
-                            params.ambient_radius * light_dir.z
-                            );
-
-                        S angle = dot(ray.dir, light_dir);
+                        // POINT LIGHT INSIDE OBJECT
+                        auto light_omega = normalize(position_delta);                               // ALGO line 12
+                        S angle = dot(ray.dir, light_omega);
                         S theta_j = acos(angle);                                                    // ALGO line 14
 
+                        // TODO: Triple check these parameters
+                        // TODO: Determine whether the last parameter needs to be divided by 20 AND/OR whether the ambient radius should be changed
+                        // TODO: THERE IS A LOT OF NOISE IN CERTAIN IMAGE REGIONS WHERE NORMAL HAS HIGH VARIANCE
                         vector<3, S> pit_coordinate = vector<3, S>(
-                            params.anisotropy,
-                            theta_j, 
-                            params.ambient_radius * mean_extinction
+                            (params.anisotropy + 10) / 19,
+                            theta_j / 3.1416, 
+                            params.ambient_radius * mean_extinction / 20
                             );
-                        C L_out(tex3D(params.pit, pit_coordinate));                                // ALGO line 15
-                        
-                        
+
+                        // ALGO line 15
+                        S radiance(tex3D(params.pit, pit_coordinate));
+                        L_out = C(radiance);
                         colori += C(
                             L_out.x * L_d.x,
                             L_out.y * L_d.y,
@@ -1143,13 +1142,13 @@ struct volume_kernel
                             L_out.w * L_d.w
                             );                                                                      // ALGO line 17
 
-                        // Update L_d
-                        pit_coordinate = vector<3, S>(
-                            params.anisotropy,
-                            0.f,
-                            static_cast<float>(params.ambient_radius * mean_extinction)
+                        // Update L_d -- I think this is just wrong... :(
+                        vector<3, S> pit_coordinate_2 = vector<3, S>(
+                            (params.anisotropy + 10) / 19,
+                            0,
+                            params.ambient_radius * mean_extinction / 20
                             );
-                        C L_out_for_d (tex3D(params.pit, pit_coordinate));
+                        C L_out_for_d (tex3D(params.pit, pit_coordinate_2));
                         L_d = C(
                             L_out_for_d.x * L_d.x,
                             L_out_for_d.y * L_d.y,
@@ -1233,13 +1232,14 @@ struct volume_kernel
                 else if (params.mode == Params::ShowExtinction)
                 {
                     result.color = C(result.color.x + mean_extinction, result.color.x + mean_extinction, result.color.x + mean_extinction, 1.0);
-                    //result.color = C(1.f, 1.f, 1.f, result.color.w + mean_extinction);
                 }
-
                 else if (params.mode == Params::ShowPit)
                 {
-                    //result.color = C(0.0, 0.0, 0.0, 1.0);
                     result.color += L_out;
+                }
+                else if (params.mode == Params::ShowRadianceCache)
+                {
+                    result.color += L_d;
                 }
             }
             // step on
@@ -1475,63 +1475,6 @@ void vvRayCaster::Impl::loadPreintegrationTable(float albedo)
     pit.reset(&pit_data[0]);
     pit.set_address_mode(Clamp);
     pit.set_filter_mode(Nearest);
-}
-
-float* createExtinctionVolume(vvVolDesc* vd, transfunc_type transfunc, int radius)
-{
-    const int volume = pow(radius * 2 + 1, 1);
-    std::vector<std::vector<std::vector<float>>> table;
-
-    // table resizing
-    table.resize(vd->vox[0]);
-    for (int i = 0; i < vd->vox[0]; i++)
-    {
-        table[i].resize(vd->vox[1]);
-
-        for (int j = 0; j < vd->vox[1]; j++)
-        {
-            table[i][j].resize(vd->vox[2]);
-        }
-    }
-
-    for (int i = 0; i < vd->vox[0]; i++)
-    {
-        for (int j = 0; j < vd->vox[1]; j++)
-        {
-            for (int k = 0; k < vd->vox[2]; k++)
-            {
-                // regions
-                for (int i_delta = -radius; i_delta <= radius; i_delta++)
-                {
-                    int neighbor_i = i + i_delta;
-                    neighbor_i = max(neighbor_i, 0);
-                    neighbor_i = min(neighbor_i, static_cast<int>(vd->vox[0]) - 1);
-                    for (int j_delta = -radius; j_delta <= radius; j_delta++)
-                    {
-                        int neighbor_j = j + j_delta;
-                        neighbor_j = max(neighbor_j, 0);
-                        neighbor_j = min(neighbor_j, static_cast<int>(vd->vox[1]) - 1);
-                        for (int k_delta = -radius; k_delta <= radius; k_delta++)
-                        {
-                            int neighbor_k = k + k_delta;
-                            neighbor_k = max(neighbor_k, 0);
-                            neighbor_k = min(neighbor_k, static_cast<int>(vd->vox[2]) - 1);
-
-                            // Sum mean neighbor
-                            // SO CLOSE!!!
-                            // TODO: This seems wrong...
-
-                            table[i][j][k] += vd->getChannelValue(0, neighbor_i, neighbor_j, neighbor_k, 0) / volume;
-                            //table[i][j][k] += transfunc(vd->getChannelValue(0, neighbor_i, neighbor_j, neighbor_k, 0)) / volume;
-                            //table[i][j][k] += ((*vd)(0, neighbor_i, neighbor_j, neighbor_k)).w / volume;
-                            //table[i][j][k] += transfunc((*vd)(0, neighbor_i, neighbor_j, neighbor_k)).w / volume;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return &(table[0][0][0]);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1947,7 +1890,7 @@ void vvRayCaster::renderVolumeGL()
     impl_->params.depth_buffer              = impl_->depth_buffer.data();
     impl_->params.depth_format              = depth_format;
     // TODO: Put this code back
-    impl_->params.mode                      = Impl::params_type::ShowExtinction; //Impl::params_type::projection_mode(getParameter(VV_MIP_MODE).asInt());
+    impl_->params.mode                      = Impl::params_type::ShowPit; //Impl::params_type::projection_mode(getParameter(VV_MIP_MODE).asInt());
     impl_->params.depth_test                = depth_test;
     impl_->params.opacity_correction        = getParameter(VV_OPCORR);
     impl_->params.early_ray_termination     = getParameter(VV_TERMINATEEARLY);
