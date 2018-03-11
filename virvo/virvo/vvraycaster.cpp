@@ -20,7 +20,9 @@
 
 // Dylan -- added imports
 #include <sstream>
-#define DEBUG_CUDA 1
+#ifdef VV_ARCH_CUDA
+#define DEBUG_CUDA
+#endif
 // End Dylan
 
 
@@ -64,10 +66,12 @@
 #include "vvtextureutil.h"
 #include "vvtoolshed.h"
 #include "vvvoldesc.h"
-#include "../../../../Program Files/NVIDIA GPU Computing Toolkit/CUDA/v9.1/include/cuda_runtime_api.h"
-#include "cuda/texture.h"
+//#include "../../../../Program Files/NVIDIA GPU Computing Toolkit/CUDA/v9.1/include/cuda_runtime_api.h"
+//#include "cuda/texture.h"
 
 #ifdef VV_ARCH_CUDA
+#include "../../../../Program Files/NVIDIA GPU Computing Toolkit/CUDA/v9.1/include/cuda_runtime_api.h"
+#include "cuda/texture.h"
 #include "cuda/utils.h"
 #endif
 
@@ -1063,6 +1067,7 @@ struct volume_kernel
 
                     if (visionaray::any(do_shade))
                     {
+                        /*
                         // TODO: make this modifiable
                         plastic<S> mat;
                         mat.ca() = from_rgb(vector<3, S>(0.3f, 0.3f, 0.3f));
@@ -1122,7 +1127,7 @@ struct volume_kernel
                                 do_shade,
                                 colori.xyz()
                                 );
-
+                        */
                         // Dylan
                         
                         // TODO: sample preint. table and radiance cache       ALGO: lines 15 and 16
@@ -1208,28 +1213,8 @@ struct volume_kernel
                                 S light_path_radiance(tex3D(params.pit, light_pit_coordinate));
                                 L_d = L_d * C(light_path_radiance);
                             }
-                        }
-
-                        // TODO: Need to create code for L_d
-                        /*
-                        // Update L_d -- I think this is just wrong... :(
-                        vector<3, S> pit_coordinate_2 = vector<3, S>(
-                        (params.anisotropy + 10) / 19,
-                        0,
-                        params.ambient_radius * mean_extinction / 20
-                        );
-                        C L_out_for_d (tex3D(params.pit, pit_coordinate_2));
-                        L_d = C(
-                        L_out_for_d.x * L_d.x,
-                        L_out_for_d.y * L_d.y,
-                        L_out_for_d.z * L_d.z,
-                        L_out_for_d.w * L_d.w
-                        );                                                                      // ALGO line 16
-                        */
-
+                        }                      
                         
-                        
-
 
                         // Multiply light radiance by view radiance
                         colori += C(
@@ -1250,10 +1235,10 @@ struct volume_kernel
                     if (params.opacity_correction)
                     {
                         colori.w = 1.0f - pow(1.0f - colori.w, params.delta);
-                    }*/
+                    }
 
                     // premultiplied alpha
-                    colori.xyz() *= colori.w;
+                    colori.xyz() *= colori.w;*/
                     color += colori;                                                                // ALGO line 19 Part B
 
                     auto pos_not = vector<3, S>(
@@ -1536,7 +1521,7 @@ void vvRayCaster::Impl::loadPreintegrationTable(float albedo)
         //delete[] m_L;
         fclose(fp);
     }
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
 
@@ -1576,8 +1561,9 @@ vvRayCaster::vvRayCaster(vvVolDesc* vd, vvRenderState renderState)
     // Handle Preintegration tables
 
     // Dylan Added Code:
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
-
+#endif
     impl_->params.albedo = 0.9;
     impl_->params.anisotropy = 0.0f;
     impl_->params.ambient_radius = 1;      //impl_->params.delta / 4;
@@ -1586,7 +1572,7 @@ vvRayCaster::vvRayCaster(vvVolDesc* vd, vvRenderState renderState)
     
     // TODO: Move extinction volume code to be handled whenever the transfer function is updated
     
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     impl_->extinction_volume_svt = SVT<float>();
@@ -1595,7 +1581,7 @@ vvRayCaster::vvRayCaster(vvVolDesc* vd, vvRenderState renderState)
     bounding_box.min = vec3i(0, 0, 0);
     bounding_box.max = vec3i(vd->getBoundingBox().size().x, vd->getBoundingBox().size().y, vd->getBoundingBox().size().z);
     impl_->extinction_volume_svt.reset(vd, bounding_box);
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     impl_->extinction_volume_texture = ext_vol_type(vd->getSize().x, vd->getSize().y, vd->getSize().z);// vd->getSize().x, vd->getSize().y, vd->getSize().z);
@@ -1604,7 +1590,7 @@ vvRayCaster::vvRayCaster(vvVolDesc* vd, vvRenderState renderState)
     impl_->extinction_volume_texture.set_filter_mode(Linear);
 
     impl_->params.extinction_volume = typename ext_vol_type::ref_type(impl_->extinction_volume_texture);
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     
@@ -1796,9 +1782,8 @@ void vvRayCaster::renderVolumeGL()
 
 #ifdef VV_ARCH_CUDA
     // TODO: consolidate!
-    //std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     thrust::device_vector<typename volume8_type::ref_type>  device_volumes8;
@@ -1811,7 +1796,7 @@ void vvRayCaster::renderVolumeGL()
         }
         return thrust::raw_pointer_cast(device_volumes8.data());
     };
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     thrust::device_vector<typename volume16_type::ref_type> device_volumes16;
@@ -1825,7 +1810,7 @@ void vvRayCaster::renderVolumeGL()
         return thrust::raw_pointer_cast(device_volumes16.data());
     };
 
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     thrust::device_vector<typename volume32_type::ref_type> device_volumes32;
@@ -1845,7 +1830,7 @@ void vvRayCaster::renderVolumeGL()
         trefs.push_back(tf);
     }
 
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     thrust::device_vector<typename transfunc_type::ref_type> device_transfuncs(trefs);
@@ -1854,9 +1839,10 @@ void vvRayCaster::renderVolumeGL()
         return thrust::raw_pointer_cast(device_transfuncs.data());
     };
 
-#if DEBUG_CUDA
-    thrust::device_vector<vec2> device_ranges;
+#ifdef DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
+    thrust::device_vector<vec2> device_ranges;
     auto ranges_data = [&]()
     {
         for (int c = 0; c < vd->getChan(); ++c)
@@ -1948,11 +1934,11 @@ void vvRayCaster::renderVolumeGL()
     impl_->params.bbox                      = clip_box( vec3(bbox.min.data()), vec3(bbox.max.data()) );
     impl_->params.delta                     = delta;
     impl_->params.num_channels              = vd->getChan();
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     impl_->params.transfuncs                = transfuncs_data();
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     impl_->params.ranges                    = ranges_data();
@@ -1970,13 +1956,13 @@ void vvRayCaster::renderVolumeGL()
     impl_->params.light                     = light;
     impl_->params.clip_objects.begin        = clip_objects_begin();
     impl_->params.clip_objects.end          = clip_objects_end();
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
 
     if (impl_->texture_format == virvo::PF_R8)
     {
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
         std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
         volume_kernel<volume8_type, volume32_type> kernel(impl_->params, volumes8_data());
@@ -1984,7 +1970,7 @@ void vvRayCaster::renderVolumeGL()
     }
     else if (impl_->texture_format == virvo::PF_R16UI)
     { 
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
         std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
         volume_kernel<volume16_type, volume32_type> kernel(impl_->params, volumes16_data());
@@ -1992,7 +1978,7 @@ void vvRayCaster::renderVolumeGL()
     }
     else if (impl_->texture_format == virvo::PF_R32F)
     {
-#if DEBUG_CUDA
+#ifdef DEBUG_CUDA
         std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
         volume_kernel<volume32_type, volume32_type> kernel(impl_->params, volumes32_data());
