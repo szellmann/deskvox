@@ -89,7 +89,7 @@ using transfunc_type    = cuda_texture<vec4,      1>;
 using volume8_type      = cuda_texture<unorm< 8>, 3>;
 using volume16_type     = cuda_texture<unorm<16>, 3>;
 using volume32_type     = cuda_texture<float,     3>;
-using pit_type          = cuda_texture<float, 3>;            // TODO: Create a volume of color values
+using pit_type          = cuda_texture<float, 2>;            // TODO: Create a volume of color values
 using ext_vol_type      = cuda_texture<float, 3>;           // TODO: Utliize this type
 #else
 #if defined(VV_ARCH_SSE2) || defined(VV_ARCH_SSE4_1)
@@ -104,7 +104,7 @@ using transfunc_type    = texture<vec4,      1>;
 using volume8_type      = texture<unorm< 8>, 3>;
 using volume16_type     = texture<unorm<16>, 3>;
 using volume32_type     = texture<float,     3>;
-using pit_type          = texture<float, 3>;                 // TODO: Create a volume of color values
+using pit_type          = texture<float, 2>;                 // TODO: Create a volume of color values
 using ext_vol_type      = texture<float, 3>;                // TODO: Utliize this type
 #endif
 
@@ -133,7 +133,7 @@ struct SVT
     void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
     template <typename Tex>
-    void build(Tex transfunc, std::vector<vec4> values_as_vector);
+    void build(Tex transfunc, std::vector<vec4> values_as_vector, bool opacity_correction, float delta);
 
     aabbi boundary(aabbi bbox) const;
 
@@ -247,7 +247,7 @@ void SVT<T>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
 
 template <typename T>
 template <typename Tex>
-void SVT<T>::build(Tex transfunc, std::vector<vec4> values_as_vector)
+void SVT<T>::build(Tex transfunc, std::vector<vec4> values_as_vector, bool opacity_correction, float delta)
 {
     // Apply transfer function
     for (int z = 0; z < depth; ++z)
@@ -273,7 +273,21 @@ void SVT<T>::build(Tex transfunc, std::vector<vec4> values_as_vector)
                 // Texture holds garbage values -- use the values_as_vector
                 coordinate *= values_as_vector.size() - 1;
                 float first_weight = 1 - (coordinate - static_cast<int>(coordinate));
-                float value = first_weight * values_as_vector[static_cast<int>(coordinate)].w + (1 - first_weight) * values_as_vector[min(static_cast<int>(coordinate) + 1, static_cast<int>(values_as_vector.size())-1)].w;
+
+                float alpha_1 = values_as_vector[static_cast<int>(coordinate)].w;
+                
+                if (opacity_correction)
+                {
+                    alpha_1 = 1.0f - pow(1.0f - alpha_1, delta);
+                }
+                float alpha_2 = values_as_vector[min(static_cast<int>(coordinate) + 1, static_cast<int>(values_as_vector.size()) - 1)].w;
+                if (opacity_correction)
+                {
+                    alpha_2 = 1.0f - pow(1.0f - alpha_2, delta);
+                }
+                float value = first_weight * alpha_1 + (1 - first_weight) * alpha_2;
+
+                
                 at(x, y, z) = value;
                 // End Dylan Code
                 /*
@@ -853,7 +867,7 @@ struct volume_kernel_params
         DRR,
         ShowExtinction,
         ShowPit,
-        ShowRadianceCache,
+        ShowRadiance,
     };
 
     using clip_object    = variant<clip_plane, clip_sphere, clip_cone>;
@@ -925,15 +939,19 @@ struct volume_kernel
         float mean_extinction;
         S T = 1.f;
         S tau = 0.f;
-        C L_out;
+        S L_out;
+        S L_d = 1.0;
+        int rayMarchCount = 0;
+        /*
         auto L_d_intermediate = params.light.intensity(params.light.position());
         auto L_d = C(
             L_d_intermediate.x,
             L_d_intermediate.y,
             L_d_intermediate.z,
             1.0f
-            );
+            );*/
         int ray_count = 0;
+        S scattering_coefficient = 1.0;
         // End Dylan
         
         result_record<S> result;
@@ -1027,7 +1045,7 @@ struct volume_kernel
                     S voxel = tex3D(volumes[i], tex_coord);                                // ALGO line 5/6
                     C colori = tex1D(params.transfuncs[i], voxel);                          // ALGO line 7 -- Note: extinction coefficient is colori.w
 
-                    // TODO: Sample Ambient Exctinction Volume      --      ALGO: line 9 -- sigma_hat
+                    // Sample Ambient Exctinction Volume      --      ALGO: line 9 -- sigma_hat
                     {   // put in compound statement to avoid compiler warning about overriding variable names
                         float max_x = tex_coord.x + params.ambient_radius / params.bbox.size().x;
                         float min_x = tex_coord.x - params.ambient_radius / params.bbox.size().x;
@@ -1057,16 +1075,11 @@ struct volume_kernel
                     }
                     ++ray_count;
 
-                    // TODO: DELETE THIS
-                    //mean_extinction = tex_coord.x;
-                    //mean_extinction = SAMPLING_PLACEHOLDER;
-                    //float mean_extinction = params.extinction_volume->at(tex_coord.x, tex_coord.y, tex_coord.z);                           // ALGO line 9
-                    //float mean_extinction = params.extinction_volume->get_count(aabb(tex_coord + params.ambient_radius, tex_coord - params.ambient_radius));                           // ALGO line 9
-
                     auto do_shade = params.local_shading && colori.w >= 0.1f;
 
                     if (visionaray::any(do_shade))
                     {
+//#ifdef USE_OLD
                         /*
                         // TODO: make this modifiable
                         plastic<S> mat;
@@ -1128,6 +1141,7 @@ struct volume_kernel
                                 colori.xyz()
                                 );
                         */
+//#else               
                         // Dylan
                         
                         // TODO: sample preint. table and radiance cache       ALGO: lines 15 and 16
@@ -1138,30 +1152,29 @@ struct volume_kernel
                             pos.y - params.light.position().y,
                             pos.z - params.light.position().z
                             );
+
                         // POINT LIGHT INSIDE OBJECT
                         auto light_omega = normalize(position_delta);                               // ALGO line 12
-                        S angle = dot(ray.dir, light_omega);
+                        S angle = dot(normalize(ray.dir), normalize(light_omega));
                         S theta_j = acos(angle);                                                    // ALGO line 14
+                        
 
                         // TODO: Triple check these parameters
                         // TODO: Determine whether the last parameter needs to be divided by 20 AND/OR whether the ambient radius should be changed
                         // TODO: THERE IS A LOT OF NOISE IN CERTAIN IMAGE REGIONS WHERE NORMAL HAS HIGH VARIANCE
-                        vector<3, S> pit_coordinate = vector<3, S>(
-                            (params.anisotropy + 10) / 19,
-                            theta_j / 3.1416, 
-                            params.ambient_radius * mean_extinction / 20
+
+                        vector<2, S> pit_coordinate = vector<2, S>(
+                            params.ambient_radius * mean_extinction / 20.0,
+                            theta_j / 3.1416
                             );
 
                         // ALGO line 15
-                        S radiance(tex3D(params.pit, pit_coordinate));
-                        L_out = C(radiance);
-                        
+                        L_out = tex2D(params.pit, pit_coordinate);
+
                         // Calculate the Radiance from the light source to the current position
                         vec3 light_ray_pos = params.light.position();                                       // Start at the light position
-                        vector<3, S> light_intensity = params.light.intensity(pos);
-                        
-                        L_d = C(light_intensity.x, light_intensity.y, light_intensity.z, 1.0);
-
+                        L_d = 1.0;
+                        bool first = true;
                         // TODO: This does not use linear interpolation to mititgate mid-sphere values
                         while (dot(light_ray_pos - params.light.position(), light_ray_pos - params.light.position()) < dot(pos - params.light.position(), pos - params.light.position()))
                         {
@@ -1176,13 +1189,14 @@ struct volume_kernel
                             if (light_ray_coordinate.x >= 0 && light_ray_coordinate.y >= 0 && light_ray_coordinate.z >= 0 &&
                                 light_ray_coordinate.x <= 1 && light_ray_coordinate.y <= 1 && light_ray_coordinate.z <= 1)
                             {
+                                if (first) { first = false; continue; }
                                 // sample light_position_mean_extinction(light_ray_pos)
-                                float max_x = tex_coord.x + params.ambient_radius / params.bbox.size().x;
-                                float min_x = tex_coord.x - params.ambient_radius / params.bbox.size().x;
-                                float max_y = tex_coord.y + params.ambient_radius / params.bbox.size().y;
-                                float min_y = tex_coord.y - params.ambient_radius / params.bbox.size().y;
-                                float max_z = tex_coord.z + params.ambient_radius / params.bbox.size().z;
-                                float min_z = tex_coord.z - params.ambient_radius / params.bbox.size().z;
+                                float max_x = light_ray_coordinate.x + params.ambient_radius / params.bbox.size().x;
+                                float min_x = light_ray_coordinate.x - params.ambient_radius / params.bbox.size().x;
+                                float max_y = light_ray_coordinate.y + params.ambient_radius / params.bbox.size().y;
+                                float min_y = light_ray_coordinate.y - params.ambient_radius / params.bbox.size().y;
+                                float max_z = light_ray_coordinate.z + params.ambient_radius / params.bbox.size().z;
+                                float min_z = light_ray_coordinate.z - params.ambient_radius / params.bbox.size().z;
 
                                 float XYZ_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, max_z));
                                 float XYz_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, min_z));
@@ -1204,43 +1218,50 @@ struct volume_kernel
                                 light_pos_mean_extinction /= VOLUME_SIZE;
                                 
                                 // sample light_position_pit (anisotropy, 0 (for light theta), r * light_position_mean_extinction)
-                                vector<3, S> light_pit_coordinate = vector<3, S>(
-                                    (params.anisotropy + 10) / 19,
-                                    0,
-                                    params.ambient_radius * mean_extinction / 20
+                                vector<2, S> light_pit_coordinate = vector<2, S>(
+                                    params.ambient_radius * mean_extinction / 20.0,
+                                    0.0
                                     );
 
-                                S light_path_radiance(tex3D(params.pit, light_pit_coordinate));
-                                L_d = L_d * C(light_path_radiance);
+                                S light_path_radiance(tex2D(params.pit, light_pit_coordinate));
+                                L_d = L_d * light_path_radiance; //C(light_path_radiance);
                             }
                         }                      
                         
 
                         // Multiply light radiance by view radiance
+                        // ALGO line 17
+                        /*
                         colori += C(
                             L_out.x * L_d.x,
                             L_out.y * L_d.y,
                             L_out.z * L_d.z,
                             L_out.w * L_d.w
-                            );                                                                      // ALGO line 17
-
+                            );                                                                      
+                        */
+                        colori *= L_out * L_d;
+                        rayMarchCount++;
                         // End Dylan
+//#endif
                     }
 
-                    // Conglomerate info and step
-                    const S scattering_coefficient = (S(1.0f) - result.color.w) * S(params.albedo);                   // ALGO line 8
-                    colori.w = scattering_coefficient * params.delta * T;                                           // ALGO line 19 Part A
-
-                    /* Not optional
+                    
+                    
+                    // TODO: Consider whether these alpha modifications need to be executed
+                    // Not optional
+                    
                     if (params.opacity_correction)
                     {
                         colori.w = 1.0f - pow(1.0f - colori.w, params.delta);
                     }
 
                     // premultiplied alpha
-                    colori.xyz() *= colori.w;*/
-                    color += colori;                                                                // ALGO line 19 Part B
+//#ifdef USE_OLD
+                    //colori.xyz() *= colori.w;
+//#else
+                    colori.xyz() *= colori.w * params.delta *T;// *S(params.albedo);                                    // ALGO line 19 Part A
 
+                    color += colori;                                                                // ALGO line 19 Part B
                     auto pos_not = vector<3, S>(
                         pos.x + params.ambient_radius * ray.dir.x,
                         pos.y + params.ambient_radius * ray.dir.y,
@@ -1254,17 +1275,19 @@ struct volume_kernel
                     S voxel_not = tex3D(volumes[i], tex_coord_not);
                     C color_not = tex1D(params.transfuncs[i], voxel_not);                           // ALGO line 20
 
-
                     tau += color_not.w * S(params.delta);                              // ALGO line 21
                     T = exp(-tau);                                                  // ALGO line 22
+//#endif
                 }
 
                 // compositing
                 if (params.mode == Params::AlphaCompositing)
                 {
+
+                    // Conglomerate info and step
                     result.color += select(
                             t < tmax && !clipped,
-                            color * (1.0f - result.color.w),
+                            color * (1.0f - result.color.w), 
                             C(0.0)
                             );
 
@@ -1298,18 +1321,22 @@ struct volume_kernel
                             C(0.0)
                             );
                 }
+//#ifndef USE_OLD
                 else if (params.mode == Params::ShowExtinction)
                 {
                     result.color = C(result.color.x + mean_extinction, result.color.x + mean_extinction, result.color.x + mean_extinction, 1.0);
                 }
                 else if (params.mode == Params::ShowPit)
                 {
-                    result.color += L_out;
+                    if (rayMarchCount == 0) { rayMarchCount = 1; }
+                    result.color += C(L_out) * params.delta * T * S(params.albedo);
                 }
-                else if (params.mode == Params::ShowRadianceCache)
+                else if (params.mode == Params::ShowRadiance)
                 {
-                    result.color += L_d;
+                    if (rayMarchCount == 0) { rayMarchCount = 1; }
+                    result.color += C(L_d) * params.delta * T * S(params.albedo);
                 }
+//#endif
             }
             // step on
             t = tnext;                                          // ALGO line 23
@@ -1459,73 +1486,72 @@ void vvRayCaster::Impl::updateVolumeTexturesImpl(vvVolDesc* vd, vvRenderer* rend
 
 void vvRayCaster::Impl::loadPreintegrationTable(float albedo)
 {
+    
+    int anisotropy = static_cast<int>(round(params.anisotropy * 10));
     std::vector<float> pit_data;
     const int albedo_flag = static_cast<int>(albedo * 10);
     FILE* fp;
     int			m_sigmat_res;			// resolution of ambient extinction coefficient 
     int			m_theta_res;			// resolution of angular bins
-    for (int i = 1; i < 20; i++)
-    {
-        std::stringstream stream;
-        stream << "E:/Research Workspace/research resources/AVSTableAlbedo0"<< albedo_flag <<"/AVSTable2D_a0" << albedo_flag << "_g";
-        if (i < 10) {
-            stream << '-';
-        }
+    std::stringstream stream;
+    stream << "E:/Research Workspace/research resources/AVSTableAlbedo0"<< albedo_flag <<"/AVSTable2D_a0" << albedo_flag << "_g";
 
-        stream << "0" << abs(10 - i) << ".tab";
-        std::string filename = stream.str();
-        fp = fopen(filename.c_str(), "rb");
-
-        if (fp == nullptr) {
-            std::cout << "Could not load from file: " << filename << std::endl;
-            throw;
-        }
-
-
-        float		m_a;					// albedo
-        float		m_g;					// anisotropy parameter for Henyey-Greenstein phase function
-        int			m_N;					// number of path samples
-        
-        float		m_sigmat_min;			// minimum value of ambient extinction coefficient
-        float		m_sigmat_max;			// maximum value of ambient extinction coefficient
-        float		m_sphere_r;				// radius of sphere 
-        float*		m_L;					// radiance data (theta, sigmat)
-
-                                            // table parameters
-
-
-        fread(&m_a, sizeof(float), 1, fp);
-        fread(&m_g, sizeof(float), 1, fp);
-        fread(&m_N, sizeof(int), 1, fp);
-        fread(&m_sigmat_res, sizeof(int), 1, fp);
-        fread(&m_theta_res, sizeof(int), 1, fp);
-        fread(&m_sigmat_min, sizeof(float), 1, fp);
-        fread(&m_sigmat_max, sizeof(float), 1, fp);
-        fread(&m_sphere_r, sizeof(float), 1, fp);
-
-        // radiance data
-        // m_L = new float[m_theta_res * m_sigmat_res];
-        size_t old_size = pit_data.size();
-        pit_data.resize(pit_data.size() + m_theta_res * m_sigmat_res);
-        fread(pit_data.data() + old_size, sizeof(float), m_sigmat_res * m_theta_res, fp);      // NOTE: Added * 3 term for color channels
-
-        
-        // TODO: Figure out how to fill the volume with the preintegration table
-        // m_L represents a single layer of values
-        /*
-        for (int i = 0; i < m_theta_res * m_sigmat_res; i++)
-        {
-            //vec4 color(m_L[i], 1.0f);
-            //pit_data.push_back(m_L[i]);
-        }*/
-        //delete[] m_L;
-        fclose(fp);
+    if (anisotropy < 0) {
+        stream << '-';
     }
+
+    stream << "0" << abs(anisotropy) << ".tab";
+    std::string filename = stream.str();
+    fp = fopen(filename.c_str(), "rb");
+
+    if (fp == nullptr) {
+        std::cout << "Could not load from file: " << filename << std::endl;
+        throw;
+    }
+
+
+    float		m_a;					// albedo
+    float		m_g;					// anisotropy parameter for Henyey-Greenstein phase function
+    int			m_N;					// number of path samples
+        
+    float		m_sigmat_min;			// minimum value of ambient extinction coefficient
+    float		m_sigmat_max;			// maximum value of ambient extinction coefficient
+    float		m_sphere_r;				// radius of sphere 
+    float*		m_L;					// radiance data (theta, sigmat)
+
+                                        // table parameters
+
+
+    fread(&m_a, sizeof(float), 1, fp);
+    fread(&m_g, sizeof(float), 1, fp);
+    fread(&m_N, sizeof(int), 1, fp);
+    fread(&m_sigmat_res, sizeof(int), 1, fp);
+    fread(&m_theta_res, sizeof(int), 1, fp);
+    fread(&m_sigmat_min, sizeof(float), 1, fp);
+    fread(&m_sigmat_max, sizeof(float), 1, fp);
+    fread(&m_sphere_r, sizeof(float), 1, fp);
+
+    // rshoadiance data
+    // m_L = new float[m_theta_res * m_sigmat_res];a
+    pit_data.resize(m_theta_res * m_sigmat_res);
+    fread(pit_data.data(), sizeof(float), m_sigmat_res * m_theta_res, fp);
+
+        
+    // TODO: Figure out how to fill the volume with the preintegration table
+    // m_L represents a single layer of values
+    /*
+    for (int i = 0; i < m_theta_res * m_sigmat_res; i++)
+    {
+        //vec4 color(m_L[i], 1.0f);
+        //pit_data.push_back(m_L[i]);
+    }*/
+    //delete[] m_L;
+    fclose(fp);
 #ifdef DEBUG_CUDA
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
 
-    pit = pit_type(19, m_theta_res, m_sigmat_res);
+    pit = pit_type(m_theta_res, m_sigmat_res);
     pit.reset(&pit_data[0]);
     pit.set_address_mode(Clamp);
     pit.set_filter_mode(Linear);
@@ -1565,8 +1591,8 @@ vvRayCaster::vvRayCaster(vvVolDesc* vd, vvRenderState renderState)
     std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
 #endif
     impl_->params.albedo = 0.9;
-    impl_->params.anisotropy = 0.0f;
-    impl_->params.ambient_radius = 1;      //impl_->params.delta / 4;
+    impl_->params.anisotropy = 0.9;
+    impl_->params.ambient_radius = 10;      //impl_->params.delta / 4;
     impl_->loadPreintegrationTable(impl_->params.albedo);
     impl_->params.pit = typename pit_type::ref_type(impl_->pit);
     
@@ -1945,7 +1971,7 @@ void vvRayCaster::renderVolumeGL()
     impl_->params.depth_buffer              = impl_->depth_buffer.data();
     impl_->params.depth_format              = depth_format;
     // For debugging
-    //impl_->params.mode                      = Impl::params_type::ShowRadianceCache;
+    //impl_->params.mode                      = Impl::params_type::ShowPit;
     impl_->params.mode                      = Impl::params_type::projection_mode(getParameter(VV_MIP_MODE).asInt());
     impl_->params.depth_test                = depth_test;
     impl_->params.opacity_correction        = getParameter(VV_OPCORR);
@@ -2002,7 +2028,7 @@ void vvRayCaster::updateTransferFunction()
         trefs.push_back(tf);
     }
     
-    impl_->extinction_volume_svt.build(trefs[0], impl_->transfunc_values);
+    impl_->extinction_volume_svt.build(trefs[0], impl_->transfunc_values, impl_->params.opacity_correction, impl_->params.delta);
     impl_->extinction_volume_texture.reset(impl_->extinction_volume_svt.data());
     impl_->extinction_volume_texture.set_address_mode(Clamp);
     impl_->extinction_volume_texture.set_filter_mode(Linear);
@@ -2024,7 +2050,7 @@ void vvRayCaster::updateVolumeData()
     if (trefs.size() > 0)
     {
         impl_->extinction_volume_svt.reset(vd, aabbi(vec3i(0), vec3i(vd->vox.x, vd->vox.y, vd->vox.z)));
-        impl_->extinction_volume_svt.build(trefs[0], impl_->transfunc_values);
+        impl_->extinction_volume_svt.build(trefs[0], impl_->transfunc_values, impl_->params.opacity_correction, impl_->params.delta);
         impl_->extinction_volume_texture.reset(impl_->extinction_volume_svt.data());
         impl_->extinction_volume_texture.set_address_mode(Clamp);
         impl_->extinction_volume_texture.set_filter_mode(Linear);
