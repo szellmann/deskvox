@@ -1154,7 +1154,7 @@ struct volume_kernel
 
                         // POINT LIGHT INSIDE OBJECT
                         auto light_omega = normalize(position_delta);                               // ALGO line 12
-                        S angle = dot(normalize(-ray.dir), normalize(light_omega));
+                        S angle = dot(normalize(ray.dir), normalize(light_omega));
                         S theta_j = acos(angle);                                                    // ALGO line 14
                         
 
@@ -1172,7 +1172,8 @@ struct volume_kernel
 
                         // Calculate the Radiance from the light source to the current position
                         vec3 light_ray_pos = params.light.position();                                       // Start at the light position
-                        L_d = 1.0;
+                        
+                        L_d = params.light.constant_attenuation();
                         bool first = true;
                         // TODO: This does not use linear interpolation to mititgate mid-sphere values
                         while (dot(light_ray_pos - params.light.position(), light_ray_pos - params.light.position()) < dot(pos - params.light.position(), pos - params.light.position()))
@@ -1257,9 +1258,9 @@ struct volume_kernel
                     color += colori;                                                                // ALGO line 19 Part B
                     //color += colori_g;
                     auto pos_not = vector<3, S>(
-                        pos.x - params.ambient_radius * ray.dir.x,
-                        pos.y - params.ambient_radius * ray.dir.y,
-                        pos.z - params.ambient_radius * ray.dir.z
+                        pos.x + params.ambient_radius * ray.dir.x,
+                        pos.y + params.ambient_radius * ray.dir.y,
+                        pos.z + params.ambient_radius * ray.dir.z
                         );                                                                          // pos_not emulates the center of the mesoscopic sphere
                     auto tex_coord_not = vector<3, S>(
                         (pos_not.x + (params.bbox.size().x / 2)) / params.bbox.size().x,
