@@ -939,7 +939,7 @@ struct volume_kernel
         float mean_extinction;
         S T = 1.f;
         S tau = 0.f;
-        S L_out;
+        S L_out = 1.0;
         S L_d = 1.0;
         int rayMarchCount = 0;
         /*
@@ -1044,6 +1044,7 @@ struct volume_kernel
                 {
                     S voxel = tex3D(volumes[i], tex_coord);                                // ALGO line 5/6
                     C colori = tex1D(params.transfuncs[i], voxel);                          // ALGO line 7 -- Note: extinction coefficient is colori.w
+                    C colori_g = tex1D(params.transfuncs[i], voxel);
 
                     // Sample Ambient Exctinction Volume      --      ALGO: line 9 -- sigma_hat
                     {   // put in compound statement to avoid compiler warning about overriding variable names
@@ -1080,7 +1081,6 @@ struct volume_kernel
                     if (visionaray::any(do_shade))
                     {
 //#ifdef USE_OLD
-                        /*
                         // TODO: make this modifiable
                         plastic<S> mat;
                         mat.ca() = from_rgb(vector<3, S>(0.3f, 0.3f, 0.3f));
@@ -1134,13 +1134,12 @@ struct volume_kernel
                         auto shaded_clr = mat.shade(sr);
 
                         // TODO: Consider whether this line needs to be commented out
-                        colori.xyz() = mul(
-                                colori.xyz(),
+                        colori_g.xyz() = mul(
+                                colori_g.xyz(),
                                 to_rgb(shaded_clr),
                                 do_shade,
-                                colori.xyz()
+                                colori_g.xyz()
                                 );
-                        */
 //#else               
                         // Dylan
                         
@@ -1155,7 +1154,7 @@ struct volume_kernel
 
                         // POINT LIGHT INSIDE OBJECT
                         auto light_omega = normalize(position_delta);                               // ALGO line 12
-                        S angle = dot(normalize(ray.dir), normalize(light_omega));
+                        S angle = dot(normalize(-ray.dir), normalize(light_omega));
                         S theta_j = acos(angle);                                                    // ALGO line 14
                         
 
@@ -1230,16 +1229,7 @@ struct volume_kernel
                         
 
                         // Multiply light radiance by view radiance
-                        // ALGO line 17
-                        /*
-                        colori += C(
-                            L_out.x * L_d.x,
-                            L_out.y * L_d.y,
-                            L_out.z * L_d.z,
-                            L_out.w * L_d.w
-                            );                                                                      
-                        */
-                        colori *= L_out * L_d;
+                        
                         rayMarchCount++;
                         // End Dylan
 //#endif
@@ -1253,19 +1243,23 @@ struct volume_kernel
                     if (params.opacity_correction)
                     {
                         colori.w = 1.0f - pow(1.0f - colori.w, params.delta);
+                        colori_g.w = 1.0f - pow(1.0f - colori_g.w, params.delta);
                     }
 
                     // premultiplied alpha
 //#ifdef USE_OLD
-                    //colori.xyz() *= colori.w;
+                    colori_g.xyz() *= colori_g.w;
 //#else
-                    colori.xyz() *= colori.w * params.delta *T;// *S(params.albedo);                                    // ALGO line 19 Part A
+                    colori.xyz() *= (colori.w * params.delta *T * L_out * L_d);// *S(params.albedo);                                    // ALGO line 17 and 19 Part A
 
+
+                    //TODO: This line of code changes between old and new methods
                     color += colori;                                                                // ALGO line 19 Part B
+                    //color += colori_g;
                     auto pos_not = vector<3, S>(
-                        pos.x + params.ambient_radius * ray.dir.x,
-                        pos.y + params.ambient_radius * ray.dir.y,
-                        pos.z + params.ambient_radius * ray.dir.z
+                        pos.x - params.ambient_radius * ray.dir.x,
+                        pos.y - params.ambient_radius * ray.dir.y,
+                        pos.z - params.ambient_radius * ray.dir.z
                         );                                                                          // pos_not emulates the center of the mesoscopic sphere
                     auto tex_coord_not = vector<3, S>(
                         (pos_not.x + (params.bbox.size().x / 2)) / params.bbox.size().x,
