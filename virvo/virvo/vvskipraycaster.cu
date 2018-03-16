@@ -653,7 +653,7 @@ aabbi TLSVT::boundary(aabbi bbox) const
 
     // Search for the minimal volume bounding box
     // that contains #voxels contained in bbox!
-    uint16_t voxels = get_count(bounds);
+    uint64_t voxels = get_count(bounds);
 
 
     // X boundary from left
