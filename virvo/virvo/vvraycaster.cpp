@@ -1076,12 +1076,12 @@ struct volume_kernel
                     }
                     ++ray_count;
 
+                    /*
                     auto do_shade = params.local_shading && colori.w >= 0.1f;
 
                     if (visionaray::any(do_shade))
-                    {
-//#ifdef USE_OLD
                         // TODO: make this modifiable
+                        
                         plastic<S> mat;
                         mat.ca() = from_rgb(vector<3, S>(0.3f, 0.3f, 0.3f));
                         mat.cd() = from_rgb(vector<3, S>(0.8f, 0.8f, 0.8f));
@@ -1140,11 +1140,12 @@ struct volume_kernel
                                 do_shade,
                                 colori_g.xyz()
                                 );
+                    }*/
 //#else               
-                        // Dylan
+                    // Dylan
                         
-                        // TODO: sample preint. table and radiance cache       ALGO: lines 15 and 16
-                        
+                    // TODO: sample preint. table and radiance cache       ALGO: lines 15 and 16
+                    if (params.local_shading) {
                         // Handle lighting from light source and sample cached info
                         auto position_delta = vector<3, S>(
                             pos.x - params.light.position().x,
@@ -1156,11 +1157,6 @@ struct volume_kernel
                         auto light_omega = normalize(position_delta);                               // ALGO line 12
                         S angle = dot(normalize(ray.dir), normalize(light_omega));
                         S theta_j = acos(angle);                                                    // ALGO line 14
-                        
-
-                        // TODO: Triple check these parameters
-                        // TODO: Determine whether the last parameter needs to be divided by 20 AND/OR whether the ambient radius should be changed
-                        // TODO: THERE IS A LOT OF NOISE IN CERTAIN IMAGE REGIONS WHERE NORMAL HAS HIGH VARIANCE
 
                         vector<2, S> pit_coordinate = vector<2, S>(
                             params.ambient_radius * mean_extinction / 20.0,
@@ -1172,7 +1168,7 @@ struct volume_kernel
 
                         // Calculate the Radiance from the light source to the current position
                         vec3 light_ray_pos = params.light.position();                                       // Start at the light position
-                        
+
                         L_d = params.light.constant_attenuation();
                         bool first = true;
                         // TODO: This does not use linear interpolation to mititgate mid-sphere values
@@ -1209,14 +1205,14 @@ struct volume_kernel
 
                                 float light_pos_mean_extinction = XYZ_corner -
                                                                   XYz_corner -
-                                                                  XyZ_corner - 
+                                                                  XyZ_corner -
                                                                   xYZ_corner +
                                                                   xyZ_corner +
                                                                   Xyz_corner +
                                                                   xYz_corner -
                                                                   xyz_corner;
                                 light_pos_mean_extinction /= VOLUME_SIZE;
-                                
+
                                 // sample light_position_pit (anisotropy, 0 (for light theta), r * light_position_mean_extinction)
                                 vector<2, S> light_pit_coordinate = vector<2, S>(
                                     params.ambient_radius * mean_extinction / 20.0,
@@ -1226,15 +1222,16 @@ struct volume_kernel
                                 S light_path_radiance(tex2D(params.pit, light_pit_coordinate));
                                 L_d = L_d * light_path_radiance; //C(light_path_radiance);
                             }
-                        }                      
-                        
 
-                        // Multiply light radiance by view radiance
-                        
-                        rayMarchCount++;
-                        // End Dylan
-//#endif
+
+                            // Multiply light radiance by view radiance
+
+                            rayMarchCount++;
+
+                        }
                     }
+                    // End Dylan
+//#endif
 
                     
                     
@@ -1251,7 +1248,7 @@ struct volume_kernel
 //#ifdef USE_OLD
                     colori_g.xyz() *= colori_g.w;
 //#else
-                    colori.xyz() *= (colori.w * params.delta *T * L_out * L_d);// *S(params.albedo);                                    // ALGO line 17 and 19 Part A
+                    colori.xyz() *= (colori.w * params.delta * T * L_out * L_d);// *S(params.albedo));                                    // ALGO line 17 and 19 Part A
 
 
                     //TODO: This line of code changes between old and new methods
