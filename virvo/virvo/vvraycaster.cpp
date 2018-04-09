@@ -942,14 +942,6 @@ struct volume_kernel
         S L_out = 1.0;
         S L_d = 1.0;
         int rayMarchCount = 0;
-        /*
-        auto L_d_intermediate = params.light.intensity(params.light.position());
-        auto L_d = C(
-            L_d_intermediate.x,
-            L_d_intermediate.y,
-            L_d_intermediate.z,
-            1.0f
-            );*/
         int ray_count = 0;
         S scattering_coefficient = 1.0;
         // End Dylan
@@ -1043,43 +1035,14 @@ struct volume_kernel
                 for (int i = 0; i < params.num_channels; ++i)                               // THIS LOOP CAN BE CONSIDERED TO HAVE ITERATION OF 1
                 {
                     S voxel = tex3D(volumes[i], tex_coord);                                // ALGO line 5/6
-                    C colori = tex1D(params.transfuncs[i], voxel);                          // ALGO line 7 -- Note: extinction coefficient is colori.w
+
+                    // colori_g is used for the ambient scattering
                     C colori_g = tex1D(params.transfuncs[i], voxel);
 
-                    // Sample Ambient Exctinction Volume      --      ALGO: line 9 -- sigma_hat
-                    {   // put in compound statement to avoid compiler warning about overriding variable names
-                        float max_x = tex_coord.x + params.ambient_radius / params.bbox.size().x;
-                        float min_x = tex_coord.x - params.ambient_radius / params.bbox.size().x;
-                        float max_y = tex_coord.y + params.ambient_radius / params.bbox.size().y;
-                        float min_y = tex_coord.y - params.ambient_radius / params.bbox.size().y;
-                        float max_z = tex_coord.z + params.ambient_radius / params.bbox.size().z;
-                        float min_z = tex_coord.z - params.ambient_radius / params.bbox.size().z;
+                    
+                    auto do_shade = params.local_shading && colori_g.w >= 0.1f;
 
-                        float XYZ_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, max_z));
-                        float XYz_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, min_z));
-                        float XyZ_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, max_z));
-                        float xYZ_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, max_z));
-                        float Xyz_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, min_z));
-                        float xYz_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, min_z));
-                        float xyZ_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, max_z));
-                        float xyz_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, min_z));
-
-                        mean_extinction = XYZ_corner -
-                                          XYz_corner -
-                                          XyZ_corner - 
-                                          xYZ_corner +
-                                          xyZ_corner +
-                                          Xyz_corner +
-                                          xYz_corner -
-                                          xyz_corner;
-                        mean_extinction /= VOLUME_SIZE;
-                    }
-                    ++ray_count;
-
-                    /*
-                    auto do_shade = params.local_shading && colori.w >= 0.1f;
-
-                    if (visionaray::any(do_shade))
+                    if (visionaray::any(do_shade)) {
                         // TODO: make this modifiable
                         
                         plastic<S> mat;
@@ -1116,7 +1079,7 @@ struct volume_kernel
                             auto boundary_normal = gatherv(clip_normals, clip_normal_index);
                             normal = select(
                                     at_boundary,
-                                    boundary_normal * colori.w + normal * (S(1.0) - colori.w),
+                                    boundary_normal * colori_g.w + normal * (S(1.0) - colori_g.w),
                                     normal
                                     );
                         }
@@ -1140,12 +1103,45 @@ struct volume_kernel
                                 do_shade,
                                 colori_g.xyz()
                                 );
-                    }*/
+                    }
 //#else               
                     // Dylan
-                        
+
+                    // color_i is used for the volume scattering
+                    C colori = tex1D(params.transfuncs[i], voxel);                          // ALGO line 7 -- Note: extinction coefficient is colori.w
+                    // Sample Ambient Exctinction Volume      --      ALGO: line 9 -- sigma_hat
+                    {   // put in compound statement to avoid compiler warning about overriding variable names
+                        float max_x = tex_coord.x + params.ambient_radius / params.bbox.size().x;
+                        float min_x = tex_coord.x - params.ambient_radius / params.bbox.size().x;
+                        float max_y = tex_coord.y + params.ambient_radius / params.bbox.size().y;
+                        float min_y = tex_coord.y - params.ambient_radius / params.bbox.size().y;
+                        float max_z = tex_coord.z + params.ambient_radius / params.bbox.size().z;
+                        float min_z = tex_coord.z - params.ambient_radius / params.bbox.size().z;
+
+                        float XYZ_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, max_z));
+                        float XYz_corner = tex3D(params.extinction_volume, vec3(max_x, max_y, min_z));
+                        float XyZ_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, max_z));
+                        float xYZ_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, max_z));
+                        float Xyz_corner = tex3D(params.extinction_volume, vec3(max_x, min_y, min_z));
+                        float xYz_corner = tex3D(params.extinction_volume, vec3(min_x, max_y, min_z));
+                        float xyZ_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, max_z));
+                        float xyz_corner = tex3D(params.extinction_volume, vec3(min_x, min_y, min_z));
+
+                        mean_extinction = XYZ_corner -
+                            XYz_corner -
+                            XyZ_corner -
+                            xYZ_corner +
+                            xyZ_corner +
+                            Xyz_corner +
+                            xYz_corner -
+                            xyz_corner;
+                        mean_extinction /= VOLUME_SIZE;
+                    }
+                    ++ray_count;
+
                     // TODO: sample preint. table and radiance cache       ALGO: lines 15 and 16
                     if (params.local_shading) {
+
                         // Handle lighting from light source and sample cached info
                         auto position_delta = vector<3, S>(
                             pos.x - params.light.position().x,
@@ -1153,10 +1149,10 @@ struct volume_kernel
                             pos.z - params.light.position().z
                             );
 
-                        // POINT LIGHT INSIDE OBJECT
                         auto light_omega = normalize(position_delta);                               // ALGO line 12
                         S angle = dot(normalize(ray.dir), normalize(light_omega));
                         S theta_j = acos(angle);                                                    // ALGO line 14
+                        
 
                         vector<2, S> pit_coordinate = vector<2, S>(
                             params.ambient_radius * mean_extinction / 20.0,
@@ -1254,6 +1250,8 @@ struct volume_kernel
                     //TODO: This line of code changes between old and new methods
                     color += colori;                                                                // ALGO line 19 Part B
                     //color += colori_g;
+
+                    // Calculate the T factor for exponential light decay
                     auto pos_not = vector<3, S>(
                         pos.x + params.ambient_radius * ray.dir.x,
                         pos.y + params.ambient_radius * ray.dir.y,
