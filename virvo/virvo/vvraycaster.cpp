@@ -1167,7 +1167,9 @@ struct volume_kernel
 
                         L_d = params.light.constant_attenuation();
                         bool first = true;
+
                         // TODO: This does not use linear interpolation to mititgate mid-sphere values
+                        // TODO: Change to do-while loop that does interpolation on the breaking condition
                         while (dot(light_ray_pos - params.light.position(), light_ray_pos - params.light.position()) < dot(pos - params.light.position(), pos - params.light.position()))
                         {
                             light_ray_pos += 2 * params.ambient_radius * light_omega;    //shoot to the center of the next circle
@@ -1442,7 +1444,13 @@ void vvRayCaster::Impl::updateVolumeTexturesImpl(vvVolDesc* vd, vvRenderer* rend
     tex_filter_mode filter_mode = renderer->getParameter(vvRenderer::VV_SLICEINT).asInt() == virvo::Linear ? Linear : Nearest;
     tex_address_mode address_mode = Clamp;
 
+#ifdef DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
     volumes.resize(vd->frames * vd->getChan());
+#ifdef DEBUG_CUDA
+    std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
 
     virvo::TextureUtil tu(vd);
     for (size_t f = 0; f < vd->frames; ++f)
@@ -1460,8 +1468,13 @@ void vvRayCaster::Impl::updateVolumeTexturesImpl(vvVolDesc* vd, vvRenderer* rend
                 f);
 
             size_t index = f * vd->getChan() + c;
-
+#ifdef DEBUG_CUDA
+            std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
             volumes[index] = Volume(vd->vox[0], vd->vox[1], vd->vox[2]);
+#ifdef DEBUG_CUDA
+            std::cerr << __LINE__ << ' ' << cudaGetErrorString(cudaGetLastError()) << '\n';
+#endif
             volumes[index].reset(reinterpret_cast<typename Volume::value_type const*>(tex_data));
             volumes[index].set_address_mode(address_mode);
             volumes[index].set_filter_mode(filter_mode);
