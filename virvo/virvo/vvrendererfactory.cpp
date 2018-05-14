@@ -194,6 +194,7 @@ void init()
   rendererAliasMap["6"] = "soft";
   rendererAliasMap["8"] = "volpack";
   rendererAliasMap["9"] = "rayrendcuda";
+  rendererAliasMap["9.1"] = "rayrendcuda";
   rendererAliasMap["10"] = "rayrendfpu";
   rendererAliasMap["11"] = "rayrendsse2";
   rendererAliasMap["12"] = "rayrendsse4_1";
@@ -224,6 +225,7 @@ void init()
   rendererTypeMap["soft"] = vvRenderer::SOFTSW;
   rendererTypeMap["rayrend"] = vvRenderer::RAYREND;
   rendererTypeMap["rayrendcuda"] = vvRenderer::RAYREND;
+  rendererTypeMap["rayrendscatter"] = vvRenderer::RAYREND;
   rendererTypeMap["rayrendfpu"] = vvRenderer::RAYREND;
   rendererTypeMap["rayrendsse2"] = vvRenderer::RAYREND;
   rendererTypeMap["rayrendsse4_1"] = vvRenderer::RAYREND;
@@ -237,6 +239,7 @@ void init()
 
   // ray rend architectures
   rayRendArchs.push_back("cuda");
+  rayRendArchs.push_back("scatter");
   rayRendArchs.push_back("fpu");
   rayRendArchs.push_back("sse2");
   rayRendArchs.push_back("sse4_1");
@@ -257,7 +260,7 @@ static bool archSupported(std::string const& arch)
     return true;
   }
 
-  if (arch == "cuda")
+  if (arch == "cuda" || arch == "scatter")
   {
 #if VV_HAVE_CUDA
     return virvo::cuda::deviceCount() > 0;

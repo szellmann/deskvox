@@ -258,9 +258,16 @@ vvPrefDialog::vvPrefDialog(vvCanvas* canvas, QWidget* parent)
 
   if (vvRendererFactory::hasRenderer("rayrend", "cuda"))
   {
-    ui->rayRendArchBox->addItem("CUDA - GPGPU ray casting");
+    ui->rayRendArchBox->addItem("CUDA - GPU ray casting");
     impl->rayRendArchMap.insert(std::make_pair(idx, "cuda"));
     ++idx;
+  }
+
+  if (vvRendererFactory::hasRenderer("rayrend", "scatter"))
+  {
+      ui->rayRendArchBox->addItem("CUDA - GPU ray casting using inscattering");
+      impl->rayRendArchMap.insert(std::make_pair(idx, "scatter"));
+      ++idx;
   }
 
   if (vvRendererFactory::hasRenderer("rayrend", "fpu"))
