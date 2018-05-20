@@ -194,7 +194,7 @@ void init()
   rendererAliasMap["6"] = "soft";
   rendererAliasMap["8"] = "volpack";
   rendererAliasMap["9"] = "rayrendcuda";
-  rendererAliasMap["9.1"] = "rayrendcuda";
+  rendererAliasMap["9.1"] = "rayrendscatter";
   rendererAliasMap["10"] = "rayrendfpu";
   rendererAliasMap["11"] = "rayrendsse2";
   rendererAliasMap["12"] = "rayrendsse4_1";
@@ -260,7 +260,12 @@ static bool archSupported(std::string const& arch)
     return true;
   }
 
-  if (arch == "cuda" || arch == "scatter")
+  if (arch == "scatter")
+  {
+    return true;
+  }
+
+  if (arch == "cuda")
   {
 #if VV_HAVE_CUDA
     return virvo::cuda::deviceCount() > 0;
