@@ -1496,21 +1496,34 @@ void vvRayCaster::Impl::loadPreintegrationTable(float albedo)
     FILE* fp;
     int			m_sigmat_res;			// resolution of ambient extinction coefficient 
     int			m_theta_res;			// resolution of angular bins
-    std::stringstream stream;
-    stream << "E:/Research Workspace/research resources/AVSTableAlbedo0"<< albedo_flag <<"/AVSTable2D_a0" << albedo_flag << "_g";
 
-    if (anisotropy < 0) {
-        stream << '-';
+    char* table = getenv("VV_ALBEDO_TABLE");
+    if (table == NULL)
+    {
+        std::stringstream stream;
+        stream << "E:/Research Workspace/research resources/AVSTableAlbedo0"<< albedo_flag <<"/AVSTable2D_a0" << albedo_flag << "_g";
+
+        if (anisotropy < 0) {
+            stream << '-';
+        }
+
+        stream << "0" << abs(anisotropy) << ".tab";
+        std::string filename = stream.str();
+        fp = fopen(filename.c_str(), "rb");
+        if (fp == nullptr) {
+            std::cout << "Could not load from file: " << filename << std::endl;
+            throw;
+        }
+    }
+    else
+    {
+        fp = fopen(table, "rb");
+        if (fp == nullptr) {
+            std::cout << "Could not load from file: " << table << std::endl;
+            throw;
+        }
     }
 
-    stream << "0" << abs(anisotropy) << ".tab";
-    std::string filename = stream.str();
-    fp = fopen(filename.c_str(), "rb");
-
-    if (fp == nullptr) {
-        std::cout << "Could not load from file: " << filename << std::endl;
-        throw;
-    }
 
 
     float		m_a;					// albedo
