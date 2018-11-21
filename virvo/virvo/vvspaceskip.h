@@ -21,6 +21,7 @@
 #ifndef VV_SPACESKIP_H
 #define VV_SPACESKIP_H
 
+#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -28,13 +29,45 @@
 #include "math/vector.h"
 #include "vvcolor.h"
 #include "vvexport.h"
+#include "vvmacros.h"
 #include "vvpixelformat.h"
 
 class vvVolDesc;
 
 namespace virvo
 {
+  /** Tree node with a data layout that can be efficiently
+   *  copied to and traversed on the GPU
+   */
+  class VV_ALIGN(32) PackedNode
+  {
+  public:
+    VV_FUNC void setInner(aabb const& bounds, unsigned left_child_index, unsigned right_child_index)
+    {
+      memcpy(bbox_min, &bounds.min, sizeof(bbox_min));
+      memcpy(bbox_max, &bounds.max, sizeof(bbox_max));
+      left_child = left_child_index;
+      right_child = right_child_index;
+    }
 
+    VV_FUNC void setLeaf(aabb const& bounds)
+    {
+      memcpy(bbox_min, &bounds.min, sizeof(bbox_min));
+      memcpy(bbox_max, &bounds.max, sizeof(bbox_max));
+      left_child = unsigned(-1);
+      right_child = unsigned(-1);
+    }
+
+    float bbox_min[3];
+    unsigned left_child;
+    float bbox_max[3];
+    unsigned right_child;
+  };
+
+
+  /** Space skipping tree wrapper, internally supports multiple
+   *  construction techniques
+   */
   class SkipTree
   {
   public:
@@ -61,6 +94,13 @@ namespace virvo
      * @brief Produce a sorted list of bricks that contain non-empty voxels
      */
     VVAPI std::vector<aabb> getSortedBricks(vec3 eye, bool frontToBack = true);
+
+
+    /**
+     * @brief Get a packed tree representation w/o pointers and
+     *        a data layout that can be used on a GPU
+     */
+    VVAPI std::vector<PackedNode> getPacked();
 
 
     /**

@@ -529,6 +529,26 @@ struct KdTree
   };
 
   template <typename Func>
+  void traverse(NodePtr const& n, Func f, bool frontToBack = true)
+  {
+    if (n != nullptr)
+    {
+      f(n);
+
+      if (frontToBack)
+      {
+        traverse(n->left, f, frontToBack);
+        traverse(n->right, f, frontToBack);
+      }
+      else
+      {
+        traverse(n->right, f, frontToBack);
+        traverse(n->left, f, frontToBack);
+      }
+    }
+  }
+
+  template <typename Func>
   void traverse(NodePtr const& n, vec3 eye, Func f, bool frontToBack = true) const
   {
     if (n != nullptr)
@@ -855,6 +875,48 @@ std::vector<aabb> SkipTree::getSortedBricks(vec3 eye, bool frontToBack)
       result[i].min = virvo::vec3(leaf.min.x, leaf.min.y, leaf.min.z);
       result[i].max = virvo::vec3(leaf.max.x, leaf.max.y, leaf.max.z);
     }
+  }
+
+  return result;
+}
+
+std::vector<PackedNode> SkipTree::getPacked()
+{
+  using visionaray::vec3;
+
+  std::vector<PackedNode> result;
+
+  auto begin = impl_->kdtree.root.get();
+
+  if (impl_->technique == SVTKdTree)
+  {
+    impl_->kdtree.traverse(impl_->kdtree.root,
+      [&](KdTree::NodePtr const& n)
+      {
+        auto dist = n.get() - begin;
+
+        if (result.size() < dist + 1)
+          result.resize(dist + 1);
+
+        auto bbox = n->bbox;
+        bbox.min.y = impl_->kdtree.vox[1] - n->bbox.max.y;
+        bbox.max.y = impl_->kdtree.vox[1] - n->bbox.min.y;
+        bbox.min.z = impl_->kdtree.vox[2] - n->bbox.max.z;
+        bbox.max.z = impl_->kdtree.vox[2] - n->bbox.min.z;
+        vec3 bmin = (vec3(bbox.min) - vec3(impl_->kdtree.vox)/2.f) * impl_->kdtree.dist * impl_->kdtree.scale;
+        vec3 bmax = (vec3(bbox.max) - vec3(impl_->kdtree.vox)/2.f) * impl_->kdtree.dist * impl_->kdtree.scale;
+
+        aabb bounds({bmin.x, bmin.y, bmin.z}, {bmax.x, bmax.y, bmax.z});
+
+        PackedNode pn;
+
+        if (n->left && n->right)
+          pn.setInner(bounds, n->left.get() - begin, n->right.get() - begin);
+        else
+          pn.setLeaf(bounds);
+
+        result[dist] = pn;
+      });
   }
 
   return result;
