@@ -218,3 +218,67 @@ RT_PROGRAM void closestHit()
 }
 
 }
+
+
+//-------------------------------------------------------------------------------------------------
+// RTX_any_hit algorithm
+//
+
+namespace RTX_any_hit
+{
+
+// Ray payload
+struct VolumePRD {
+  float4* dst;
+};
+
+rtDeclareVariable(VolumePRD,  volumePRD,   rtPayload, );
+
+// Ray generation program
+RT_PROGRAM void renderFrame()
+{
+  colorBuffer[pixelID] = make_float4(0,0,0,0);
+
+  const matrix_camera& cam = frameStateBuffer[0].camera;
+
+  float delta = frameStateBuffer[0].delta;
+
+  ray r = cam.primary_ray(
+        ray{},
+        (float)pixelID.x,
+        (float)pixelID.y,
+        (float)launchDim.x,
+        (float)launchDim.y
+        );
+
+  optix::Ray optixRay = optix::Ray(make_float3(r.ori.x,r.ori.y,r.ori.z),
+                                   make_float3(r.dir.x,r.dir.y,r.dir.z),
+                                   0 /* ray type */,
+                                   0.f, /* tmin */
+                                   1e20f /*tmax */);
+
+  VolumePRD prd;
+  prd.dst = &colorBuffer[pixelID];
+  rtTrace(volumeBVH, optixRay, prd,
+          RT_VISIBILITY_ALL
+          );
+  colorBuffer[pixelID] = *prd.dst;
+}
+
+// Any hit program
+RT_PROGRAM void anyHit()
+{
+  float t = hit_t0;
+  float tmax = hit_t1;
+  visionaray::aabb bbox = volumes[0].bbox;
+  float3 size = make_float3(bbox.size().x,bbox.size().y,bbox.size().z);
+
+  float delta = frameStateBuffer[0].delta;
+
+  // integrate
+  integrate(optixRay, size, t, tmax, delta, *volumePRD.dst);
+
+  rtIgnoreIntersection();
+}
+
+}

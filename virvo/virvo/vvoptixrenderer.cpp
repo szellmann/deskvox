@@ -83,7 +83,11 @@ struct vvOptixRenderer::Impl
     context["colorBuffer"]->set(colorBuffer);
 
     // Ray generation program
+#if 1
     raygenProgram = context->createProgramFromPTXString(ptxCode, "RTX_closest_hit::renderFrame");
+#else
+    raygenProgram = context->createProgramFromPTXString(ptxCode, "RTX_any_hit::renderFrame");
+#endif
     context->setRayGenerationProgram(0, raygenProgram);
 
     const int RTX = true;
@@ -118,9 +122,15 @@ struct vvOptixRenderer::Impl
     volumeG->setIntersectionProgram(isecProgram);
       
     volumeMat = context->createMaterial();
+#if 1
     optix::Program chProgram
       = context->createProgramFromPTXString(ptxCode,"RTX_closest_hit::closestHit");
     volumeMat->setClosestHitProgram(/*BRICK_RAY_TYPE*/0,chProgram);
+#else
+    optix::Program chProgram
+      = context->createProgramFromPTXString(ptxCode,"RTX_any_hit::anyHit");
+    volumeMat->setAnyHitProgram(/*BRICK_RAY_TYPE*/0,chProgram);
+#endif
     // optix::Program ahProgram
     //   = context->createProgramFromPTXString(ptxCode,"exa::Brick_any_hit");
     // volumeMat->setAnyHitProgram(BRICK_RAY_TYPE,ahProgram);
@@ -250,6 +260,13 @@ void vvOptixRenderer::renderVolumeGL()
   virvo::CudaTimer t;
   impl_->context->launch(0, viewport.w, viewport.h);
 
+  std::cout << std::fixed << std::setprecision(8);
+  /*static*/ double avg = 0.0;
+  /*static*/ size_t cnt = 0;
+  avg += t.elapsed();
+  cnt += 1;
+  std::cout << avg/cnt << std::endl;
+
   virvo::RenderTarget* rt = getRenderTarget();
   const float* colors = (const float*)impl_->colorBuffer->map();
   memcpy((void*)rt->deviceColor(), colors, viewport.w * viewport.h * 4 * sizeof(float));
@@ -263,13 +280,6 @@ void vvOptixRenderer::renderVolumeGL()
 
     impl_->tree.renderGL(color);
   }
-
-  std::cout << std::fixed << std::setprecision(8);
-  static double avg = 0.0;
-  static size_t cnt = 0;
-  avg += t.elapsed();
-  cnt += 1;
-  std::cout << avg/cnt << std::endl;
 }
 
 void vvOptixRenderer::updateTransferFunction()
