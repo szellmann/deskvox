@@ -13,6 +13,11 @@
 
 using namespace visionaray;
 
+
+//-------------------------------------------------------------------------------------------------
+// Stuff used by all algorithms
+//
+
 rtBuffer<FrameState, 1> frameStateBuffer;
 rtBuffer<float4, 2>     colorBuffer;
 
@@ -42,14 +47,6 @@ rtDeclareVariable(int,   hit_ID, attribute hit_ID, );
 /*! the implicit state's ray we will intersect against */
 rtDeclareVariable(optix::Ray, optixRay, rtCurrentRay, );
 rtDeclareVariable(float, t_hit, rtIntersectionDistance  , );
-
-// Ray payload
-struct VolumePRD {
-  int leafID;
-  float t0, t1;
-};
-
-rtDeclareVariable(VolumePRD,  volumePRD,   rtPayload, );
 
 inline __device__ bool boxTest(const optix::Ray &ray, const aabb &box,
                                float &t0, float &t1)
@@ -109,6 +106,57 @@ inline __device__ void integrate(const optix::Ray& optixRay,
   }
 }
 
+// Bounding box program
+RT_PROGRAM void getBounds(int leafID, float result[6])
+{
+  result[0] = leafBuffer[leafID].min.x;
+  result[1] = leafBuffer[leafID].min.y;
+  result[2] = leafBuffer[leafID].min.z;
+  result[3] = leafBuffer[leafID].max.x;
+  result[4] = leafBuffer[leafID].max.y;
+  result[5] = leafBuffer[leafID].max.z;
+
+  printf("%f %f %f  %f %f %f\n",
+         result[0],
+         result[1],
+         result[2],
+         result[3],
+         result[4],
+         result[5]);
+}
+
+// Intersection program
+RT_PROGRAM void intersection(int leafID)
+{
+    float t0 = optixRay.tmin, t1 = optixRay.tmax;
+    const aabb &brick = leafBuffer[leafID];
+    if (!boxTest(optixRay,brick,t0,t1))
+      return;
+
+    if (rtPotentialIntersection(t0)) {
+      hit_t0 = t0;
+      hit_t1 = t1;
+      hit_ID = leafID;
+      rtReportIntersection(0);
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// RTX_closest_hit algorithm
+//
+
+namespace RTX_closest_hit
+{
+
+// Ray payload
+struct VolumePRD {
+  int leafID;
+  float t0, t1;
+};
+
+rtDeclareVariable(VolumePRD,  volumePRD,   rtPayload, );
+
 // Ray generation program
 RT_PROGRAM void renderFrame()
 {
@@ -161,45 +209,12 @@ RT_PROGRAM void renderFrame()
   }
 }
 
-// Bounding box program
-RT_PROGRAM void getBounds(int leafID, float result[6])
-{
-  result[0] = leafBuffer[leafID].min.x;
-  result[1] = leafBuffer[leafID].min.y;
-  result[2] = leafBuffer[leafID].min.z;
-  result[3] = leafBuffer[leafID].max.x;
-  result[4] = leafBuffer[leafID].max.y;
-  result[5] = leafBuffer[leafID].max.z;
-
-  printf("%f %f %f  %f %f %f\n",
-         result[0],
-         result[1],
-         result[2],
-         result[3],
-         result[4],
-         result[5]);
-}
-
-// Intersection program
-RT_PROGRAM void intersection(int leafID)
-{
-    float t0 = optixRay.tmin, t1 = optixRay.tmax;
-    const aabb &brick = leafBuffer[leafID];
-    if (!boxTest(optixRay,brick,t0,t1))
-      return;
-
-    if (rtPotentialIntersection(t0)) {
-      hit_t0 = t0;
-      hit_t1 = t1;
-      hit_ID = leafID;
-      rtReportIntersection(0);
-    }
-}
-
 // Closest hit program
 RT_PROGRAM void closestHit()
 {
   volumePRD.t0 = hit_t0;
   volumePRD.t1 = hit_t1;
   volumePRD.leafID = hit_ID;
+}
+
 }

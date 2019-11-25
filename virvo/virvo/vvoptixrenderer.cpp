@@ -83,7 +83,7 @@ struct vvOptixRenderer::Impl
     context["colorBuffer"]->set(colorBuffer);
 
     // Ray generation program
-    raygenProgram = context->createProgramFromPTXString(ptxCode, "renderFrame");
+    raygenProgram = context->createProgramFromPTXString(ptxCode, "RTX_closest_hit::renderFrame");
     context->setRayGenerationProgram(0, raygenProgram);
 
     const int RTX = true;
@@ -119,7 +119,7 @@ struct vvOptixRenderer::Impl
       
     volumeMat = context->createMaterial();
     optix::Program chProgram
-      = context->createProgramFromPTXString(ptxCode,"closestHit");
+      = context->createProgramFromPTXString(ptxCode,"RTX_closest_hit::closestHit");
     volumeMat->setClosestHitProgram(/*BRICK_RAY_TYPE*/0,chProgram);
     // optix::Program ahProgram
     //   = context->createProgramFromPTXString(ptxCode,"exa::Brick_any_hit");
