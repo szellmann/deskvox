@@ -125,7 +125,20 @@ void KdTree::node_splitting(int index)
 
   // Halting criterion 2.)
   if (best_p < 0)
-    return;
+  {
+    if (len[axis] > 32)
+    {
+      best_p = num_planes/2;
+      int pos = first + dl * best_p;
+      // Align on 8-voxel raster
+      pos >>= 3;
+      pos <<= 3;
+      lbox.max[axis] = pos;
+      rbox.min[axis] = pos;
+    }
+    else
+      return;
+  }
 
   // Store split plane for traversal
   nodes[index].axis = axis;
