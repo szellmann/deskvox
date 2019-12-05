@@ -274,7 +274,7 @@ void gl::blendPixels(GLsizei srcW, GLsizei srcH, GLenum format, GLenum type, con
     glEnable(GL_BLEND);
     glBlendFunc(sfactor, dfactor);
 
-    glDrawPixels(srcW, srcH, format, type, pixels);
+    //glDrawPixels(srcW, srcH, format, type, pixels);
 
     glPopAttrib();
 }

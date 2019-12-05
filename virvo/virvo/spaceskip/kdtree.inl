@@ -54,15 +54,19 @@ void KdTree::updateTransfunc(Tex transfunc)
   // Number of voxels bound in leaves
   visionaray::vec3 eye(1,1,1);
   size_t vol = 0;
-  traverse(0 /*root*/, eye, [&vol](Node const& n)
+  size_t numLeaves = 0;
+  size_t numNodes = 0;
+  traverse(0 /*root*/, eye, [&numLeaves,&numNodes,&vol](Node const& n)
   {
     if (n.left == -1 && n.right == -1)
     {
       auto s = n.bbox.size();
       vol += size_t(s.x) * s.y * s.z;
+      ++numLeaves;
     }
+    ++numNodes;
   }, true);
-  std::cout << vol << " voxels bound in leaf nodes\n";
+  std::cout << vol << " voxels bound in " << numLeaves << " leaf nodes (" << numNodes << " nodes total)\n";
   std::cout << "Fraction bound: " << double(vol) / double(size_t(vox[0]) * vox[1] * vox[2]) << '\n';
 #endif
 }

@@ -526,7 +526,7 @@ next:
 
             while (node.left != -1 && node.right != -1)
             {
-#if 1 // left and right are stored next to each other in memory
+#if 0 // left and right are stored next to each other in memory
                 auto children = &nodes[node.left];
 #else // e.g. LBVH
                 virvo::SkipTreeNode children[2] = { nodes[node.left], nodes[node.right] };
@@ -674,8 +674,8 @@ struct vvSimpleCaster::Impl
     Impl()
         : sched(8, 8)
 //      , tree(virvo::SkipTree::Grid)
-//      , tree(virvo::SkipTree::LBVH)
-        , tree(virvo::SkipTree::SVTKdTree)
+      , tree(virvo::SkipTree::LBVH)
+//        , tree(virvo::SkipTree::SVTKdTree)
 //      , tree(virvo::SkipTree::SVTKdTreeCU)
         , grid(virvo::SkipTree::Grid)
     {
@@ -798,7 +798,7 @@ void vvSimpleCaster::renderVolumeGL()
         hybrid = false;
     }
     // Hybrid mode:
-    if (1)
+    if (0)
     {
         full = false;
         leaves = false;
@@ -963,7 +963,7 @@ void vvSimpleCaster::renderVolumeGL()
         impl_->sched.frame(kernel, sparams);
     }
 
-    if (0)//_boundaries)
+    if (_boundaries)
     {
         glEnable(GL_DEPTH_TEST);
         glDepthRange(0,0.95);
@@ -992,11 +992,11 @@ void vvSimpleCaster::renderVolumeGL()
     }
 
     std::cout << std::fixed << std::setprecision(8);
-    /*static*/ double avg = 0.0;
-    /*static*/ size_t cnt = 0;
+    static double avg = 0.0;
+    static size_t cnt = 0;
     avg += t.elapsed();
     cnt += 1;
-    std::cout << avg/cnt << std::endl;
+    //std::cout << "Avg: " << avg/cnt << std::endl;
 }
 
 void vvSimpleCaster::updateTransferFunction()
@@ -1039,7 +1039,8 @@ void vvSimpleCaster::updateTransferFunction()
     impl_->device_tree = impl_->tree.getNodesDevPtr(numNodes);
 //  std::cout << numNodes << '\n';
     }
-    /*{
+#if 1 // clear
+    {
     impl_->tree.updateTransfunc(nullptr, 1, 1, 1, virvo::PF_RGBA32F);
     tex_filter_mode filter_mode = getParameter(VV_SLICEINT).asInt() == virvo::Linear ? Linear : Nearest;
     virvo::PixelFormat texture_format = virvo::PF_R8;
@@ -1059,7 +1060,8 @@ void vvSimpleCaster::updateTransferFunction()
         impl_->volumes[f].set_address_mode(Clamp);
         impl_->volumes[f].set_filter_mode(filter_mode);
     }
-    }*/
+    }
+#endif
 }
 
 void vvSimpleCaster::updateVolumeData()
