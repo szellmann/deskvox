@@ -730,7 +730,7 @@ void CudaKdTree::Impl::node_splitting(int index)
   // Halting criterion 2.)
   if (best_p < 0)
   {
-    //if (len[axis] > 32)
+    //if (len[axis] > 128)
     //{
     //  best_p = num_planes/2;
     //  int pos = first + dl * best_p;
@@ -913,7 +913,7 @@ void CudaKdTree::updateTransfunc(const visionaray::texture_ref<visionaray::vec4,
 #if 1//STATISTICS
   static int cnt = 0;
   static std::vector<double> values;
-  if (0)//cnt == 0) // Occupancy stats
+  if (cnt == 0) // Occupancy stats
   {++cnt;std::cout << std::endl;
   // Number of non-empty voxels (overall), number of 26-connected voxels
   thrust::host_vector<uint8_t> host_voxels(size_t(impl_->vox[0])*impl_->vox[1]*impl_->vox[2]);
@@ -927,7 +927,7 @@ void CudaKdTree::updateTransfunc(const visionaray::texture_ref<visionaray::vec4,
     if (tex1D(transfunc, fval).w >= 0.0001)
       ++non_empty;
   }
-  size_t empty_26 = 0;
+  /*size_t empty_26 = 0;
   for (size_t z=1; z<impl_->vox[2]-1; ++z)
   {
     for (size_t y=1; y<impl_->vox[1]-1; ++y)
@@ -962,12 +962,12 @@ void CudaKdTree::updateTransfunc(const visionaray::texture_ref<visionaray::vec4,
         }
       }
     }
-  }
+  }*/
   std::cout << non_empty << " non-empty voxels of " <<size_t(impl_->vox[0]) * impl_->vox[1] * impl_->vox[2]<< '\n';
   std::cout << "Occupancy: " << double(non_empty) / double(size_t(impl_->vox[0]) * impl_->vox[1] * impl_->vox[2]) << '\n';
 
-  std::cout << "# 26-connected empty voxels: " << empty_26 << '\n';
-  std::cout << "# 26-connected empty voxels: (relative)" << empty_26 / double(size_t(impl_->vox[0]) * impl_->vox[1] * impl_->vox[2]) << '\n';
+  //std::cout << "# 26-connected empty voxels: " << empty_26 << '\n';
+  //std::cout << "# 26-connected empty voxels: (relative)" << empty_26 / double(size_t(impl_->vox[0]) * impl_->vox[1] * impl_->vox[2]) << '\n';
 
   // Number of voxels bound in leaves
   visionaray::vec3 eye(1,1,1);

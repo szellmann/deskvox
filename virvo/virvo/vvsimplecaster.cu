@@ -526,7 +526,7 @@ next:
 
             while (node.left != -1 && node.right != -1)
             {
-#if 0 // left and right are stored next to each other in memory
+#if 1 // left and right are stored next to each other in memory
                 auto children = &nodes[node.left];
 #else // e.g. LBVH
                 virvo::SkipTreeNode children[2] = { nodes[node.left], nodes[node.right] };
@@ -674,8 +674,8 @@ struct vvSimpleCaster::Impl
     Impl()
         : sched(8, 8)
 //      , tree(virvo::SkipTree::Grid)
-      , tree(virvo::SkipTree::LBVH)
-//        , tree(virvo::SkipTree::SVTKdTree)
+//      , tree(virvo::SkipTree::LBVH)
+        , tree(virvo::SkipTree::SVTKdTree)
 //      , tree(virvo::SkipTree::SVTKdTreeCU)
         , grid(virvo::SkipTree::Grid)
     {
@@ -1001,8 +1001,9 @@ void vvSimpleCaster::renderVolumeGL()
 
 void vvSimpleCaster::updateTransferFunction()
 {
-    //for (int i = 0; i < 5; ++i)
-    //for (int i = 0; i < 1100; ++i)
+    double avg = 0.0;
+    int n = 5;
+    for (int i = 0; i < n; ++i)
     {
     std::vector<vec4> tf(TF_WIDTH * 1 * 1);
     vd->computeTFTexture(0, TF_WIDTH, 1, 1, reinterpret_cast<float*>(tf.data()));
@@ -1017,7 +1018,17 @@ void vvSimpleCaster::updateTransferFunction()
     tf_ref.set_address_mode(Clamp);
     tf_ref.set_filter_mode(Nearest);
 
+    //virvo::CudaTimer t;
+    vvStopwatch t;
+    t.start();
     impl_->tree.updateTransfunc(reinterpret_cast<const uint8_t*>(tf_ref.data()), TF_WIDTH, 1, 1, virvo::PF_RGBA32F);
+    //double elapsed = t.elapsed();
+    double elapsed = t.getTime();
+    std::cout << elapsed << '\n';
+    if (i > 0)
+      avg += elapsed;
+    else
+      std::cout << "(ignored)\n";
 
     bool hybrid = true;
     if (hybrid)
@@ -1039,7 +1050,8 @@ void vvSimpleCaster::updateTransferFunction()
     impl_->device_tree = impl_->tree.getNodesDevPtr(numNodes);
 //  std::cout << numNodes << '\n';
     }
-#if 1 // clear
+    std::cout << "avg construction time: " << avg/(n-1) << '\n';
+#if 0 // clear
     {
     impl_->tree.updateTransfunc(nullptr, 1, 1, 1, virvo::PF_RGBA32F);
     tex_filter_mode filter_mode = getParameter(VV_SLICEINT).asInt() == virvo::Linear ? Linear : Nearest;

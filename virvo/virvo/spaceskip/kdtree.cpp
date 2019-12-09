@@ -126,7 +126,7 @@ void KdTree::node_splitting(int index)
   // Halting criterion 2.)
   if (best_p < 0)
   {
-    //if (len[axis] > 128)
+    //if (len[axis] > 32)
     //{
     //  best_p = num_planes/2;
     //  int pos = first + dl * best_p;

@@ -5412,7 +5412,7 @@ vvFileIO::ErrorType vvFileIO::loadVolumeData(vvVolDesc* vd, LoadType sec, bool a
 
   if (vd->getFilename()==NULL || strlen(vd->getFilename()) == 0)
   {
-    vd->computeVolume(int(vd->frames), vd->vox[0], vd->vox[1], vd->vox[2]);
+    vd->computeVolume(5, vd->vox[0], vd->vox[1], vd->vox[2]);
     return OK;
   }
 
