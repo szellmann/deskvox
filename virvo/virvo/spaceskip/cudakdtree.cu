@@ -650,9 +650,9 @@ void CudaKdTree::Impl::node_splitting(int index)
 
   // Halting criterion 1.)
 //#ifdef SHALLOW
-  if (vol < root_vol / 10)
+  //if (vol < root_vol / 10)
 //#elif defined(DEEP)
-  //if (vol < 8*8*8)
+  if (vol < 8*8*8)
 //#endif
     return;
 
@@ -730,17 +730,17 @@ void CudaKdTree::Impl::node_splitting(int index)
   // Halting criterion 2.)
   if (best_p < 0)
   {
-    //if (len[axis] > 128)
-    //{
-    //  best_p = num_planes/2;
-    //  int pos = first + dl * best_p;
-    //  // Align on 8-voxel raster
-    //  pos >>= 3;
-    //  pos <<= 3;
-    //  lbox.max[axis] = pos;
-    //  rbox.min[axis] = pos;
-    //}
-    //else
+    if (len[axis] > 128)
+    {
+      best_p = num_planes/2;
+      int pos = first + dl * best_p;
+      // Align on 8-voxel raster
+      pos >>= 3;
+      pos <<= 3;
+      lbox.max[axis] = pos;
+      rbox.min[axis] = pos;
+    }
+    else
       return;
   }
 

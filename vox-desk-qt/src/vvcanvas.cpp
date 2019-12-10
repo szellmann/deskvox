@@ -82,9 +82,9 @@ vvCanvas::vvCanvas(const QGLFormat& format, const QString& filename, QWidget* pa
   {
     // load default volume
     _vd = new vvVolDesc;
-    _vd->vox[0] = 2048;
-    _vd->vox[1] = 2048;
-    _vd->vox[2] = 2048;
+    _vd->vox[0] = 1024;
+    _vd->vox[1] = 1024;
+    _vd->vox[2] = 1024;
     _vd->frames = 0;
   }
 
