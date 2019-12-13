@@ -678,6 +678,8 @@ struct vvSimpleCaster::Impl
         , tree(virvo::SkipTree::SVTKdTree)
 //      , tree(virvo::SkipTree::SVTKdTreeCU)
         , grid(virvo::SkipTree::Grid)
+        , avgFrameTime(0.)
+        , frameCount(0)
     {
     }
 
@@ -702,6 +704,9 @@ struct vvSimpleCaster::Impl
 
     // Simple grid (preclassified)
     thrust::device_vector<uint8_t> d_cells_empty;
+
+    double avgFrameTime;
+    unsigned frameCount;
 };
 
 vvSimpleCaster::vvSimpleCaster(vvVolDesc* vd, vvRenderState renderState)
@@ -1001,12 +1006,11 @@ void vvSimpleCaster::renderVolumeGL()
         //glLineWidth(3.0f);
         //renderBoundingBox();
 
+    impl_->avgFrameTime += t.elapsed();
+    impl_->frameCount += 1;
+
     std::cout << std::fixed << std::setprecision(8);
-    static double avg = 0.0;
-    static size_t cnt = 0;
-    avg += t.elapsed();
-    cnt += 1;
-    std::cout << "Avg: " << avg/cnt << std::endl;
+    std::cout << "Avg: " << impl_->avgFrameTime/impl_->frameCount << std::endl;
 }
 
 void vvSimpleCaster::updateTransferFunction()
@@ -1123,6 +1127,14 @@ void vvSimpleCaster::updateVolumeData()
     }
 }
 
+bool vvSimpleCaster::resize(int w, int h)
+{
+    impl_->avgFrameTime = 0.;
+    impl_->frameCount = 0;
+
+    return vvRenderer::resize(w, h);
+}
+
 void  vvSimpleCaster::setCurrentFrame(size_t frame) 
 {
 }
@@ -1134,6 +1146,9 @@ bool vvSimpleCaster::checkParameter(ParameterType param, vvParam const& value) c
 
 void vvSimpleCaster::setParameter(ParameterType param, const vvParam& value) 
 {
+    impl_->avgFrameTime = 0.;
+    impl_->frameCount = 0;
+
     switch (param)
     {
     case VV_SLICEINT:
