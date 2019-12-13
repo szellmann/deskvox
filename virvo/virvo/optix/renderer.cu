@@ -182,6 +182,8 @@ RT_PROGRAM void renderFrame()
 
   float alreadyIntegratedDistance = 0.f;
 
+  float4 dst = make_float4(0,0,0,0);
+
   while (1) {
 
     VolumePRD prd;
@@ -205,8 +207,10 @@ RT_PROGRAM void renderFrame()
     float3 size = make_float3(bbox.size().x,bbox.size().y,bbox.size().z);
 
     // integrate
-    integrate(optixRay, size, t, tmax, delta, colorBuffer[pixelID]);
+    integrate(optixRay, size, t, tmax, delta, dst);
   }
+
+  colorBuffer[pixelID] = dst;
 }
 
 // Closest hit program

@@ -124,7 +124,7 @@ struct KdTree
   template <typename Tex>
   void updateTransfunc(Tex transfunc);
 
-  void node_splitting(int index);
+  void node_splitting(int index, int& depth);
 
   virvo::SkipTreeNode* getNodesDevPtr(int& numNodes);
 

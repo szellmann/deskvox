@@ -288,7 +288,8 @@ __global__ void buildHierarchy(Node* inner,
         Node* leaves,
         int num_leaves,
         Brick* bricks,
-        virvo::SkipTreeNode* nodes)
+        virvo::SkipTreeNode* nodes,
+        int* depth)
 {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -302,6 +303,8 @@ __global__ void buildHierarchy(Node* inner,
   // Atomically combine child bounding boxes and update parents
   int next = leaves[index].parent;
 
+  int d = 1;
+
   while (next >= 0)
   {
     atomicMin(&inner[next].bbox.min.x, bbox.min.x);
@@ -311,7 +314,9 @@ __global__ void buildHierarchy(Node* inner,
     atomicMax(&inner[next].bbox.max.y, bbox.max.y);
     atomicMax(&inner[next].bbox.max.z, bbox.max.z);
     next = inner[next].parent;
+    ++d;
   }
+  atomicMax(&depth[0],d);
 }
 
 __global__ void convertToWorldspace(Node* inner,
@@ -631,14 +636,20 @@ void BVH::updateTransfunc(BVH::TransfuncTex transfunc)
   virvo::SkipTreeNode init = { FLT_MAX, FLT_MAX, FLT_MAX, -1, -FLT_MAX, -FLT_MAX, -FLT_MAX, -1 };
   impl_->nodes.resize(inner.size() + leaves.size(), init);
 
+  thrust::device_vector<int> depth(1);
+
   buildHierarchy<<<div_up(leaves.size(), numThreads), numThreads>>>(
       thrust::raw_pointer_cast(inner.data()),
       thrust::raw_pointer_cast(leaves.data()),
       leaves.size(),
       thrust::raw_pointer_cast(compact_bricks.data()),
-      thrust::raw_pointer_cast(impl_->nodes.data()));
+      thrust::raw_pointer_cast(impl_->nodes.data()),
+      thrust::raw_pointer_cast(depth.data()));
   std::cout << "Build hierarchy: " << t.elapsed() << '\n';
   t.reset();
+
+  thrust::host_vector<int> h_depth(depth);
+  std::cout << h_depth[0] << ' ' << inner.size() << ' ' << leaves.size() << '\n';
 
   vec3 rootSize = vec3(impl_->vox) * impl_->dist * impl_->scale;
   float rootVolume = rootSize.x * rootSize.y * rootSize.z;

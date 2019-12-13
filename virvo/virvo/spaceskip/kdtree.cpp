@@ -48,7 +48,7 @@ void KdTree::updateVolume(vvVolDesc const& vd, int channel)
   psvt.reset(vd, aabbi(vec3i(0), vox), channel);
 }
 
-void KdTree::node_splitting(int index)
+void KdTree::node_splitting(int index, int& depth)
 {
   using namespace visionaray;
 
@@ -155,8 +155,14 @@ void KdTree::node_splitting(int index)
   right.bbox = rbox;
   nodes.emplace_back(right);
 
-  node_splitting(nodes[index].left);
-  node_splitting(nodes[index].right);
+  ++depth;
+  int depthl = depth;
+  int depthr = depth;
+
+  node_splitting(nodes[index].left, depthl);
+  node_splitting(nodes[index].right, depthr);
+
+  depth = max(depthl,depthr);
 }
 
 virvo::SkipTreeNode* KdTree::getNodesDevPtr(int& numNodes)

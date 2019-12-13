@@ -963,14 +963,22 @@ void vvSimpleCaster::renderVolumeGL()
         impl_->sched.frame(kernel, sparams);
     }
 
-    if (_boundaries)
+    if (0)//_boundaries)
     {
-        glEnable(GL_DEPTH_TEST);
-        glDepthRange(0,0.95);
-        glClearDepth(1.0f);
-        glClear(GL_DEPTH_BUFFER_BIT);
+        glDisable(GL_DEPTH_TEST);
 
-        glLineWidth(3.0f);
+        glDisable(GL_BLEND);
+
+        //glEnable(GL_DEPTH_TEST);
+        //glDepthRange(0,0.95);
+        //glClearDepth(1.0f);
+        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+
+        glDisable(GL_DEPTH_TEST);
+
+        glDisable(GL_BLEND);
+
+        //glLineWidth(3.0f);
 
         //glEnable(GL_LINE_SMOOTH);
         //glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
@@ -990,19 +998,21 @@ void vvSimpleCaster::renderVolumeGL()
         if (isLightingEnabled)
             glEnable(GL_LIGHTING);
     }
+        //glLineWidth(3.0f);
+        //renderBoundingBox();
 
     std::cout << std::fixed << std::setprecision(8);
     static double avg = 0.0;
     static size_t cnt = 0;
     avg += t.elapsed();
     cnt += 1;
-    //std::cout << "Avg: " << avg/cnt << std::endl;
+    std::cout << "Avg: " << avg/cnt << std::endl;
 }
 
 void vvSimpleCaster::updateTransferFunction()
 {
     double avg = 0.0;
-    int n = 5;
+    int n = 1;
     for (int i = 0; i < n; ++i)
     {
     std::vector<vec4> tf(TF_WIDTH * 1 * 1);

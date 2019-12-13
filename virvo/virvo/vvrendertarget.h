@@ -115,7 +115,7 @@ namespace virvo
         // Returns a pointer to the host depth buffer - if any
         virtual void const* hostDepth() const { return 0; }
 
-    protected:
+    //protected:
         // Prepare for rendering
         bool beginFrame(unsigned clearMask = 0);
 

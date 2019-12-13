@@ -617,7 +617,7 @@ struct CudaKdTree::Impl
     }
   }
 
-  void node_splitting(int index);
+  void node_splitting(int index, int& depth);
   void renderGL(int index, vvColor color) const;
 
   CudaSVT<uint16_t> svt;
@@ -631,7 +631,7 @@ struct CudaKdTree::Impl
   thrust::device_vector<SkipTreeNode> d_nodes;
 };
 
-void CudaKdTree::Impl::node_splitting(int index)
+void CudaKdTree::Impl::node_splitting(int index, int& depth)
 {
   using visionaray::aabbi;
   using visionaray::vec3i;
@@ -765,8 +765,14 @@ void CudaKdTree::Impl::node_splitting(int index)
   right.bbox = rbox;
   nodes.emplace_back(right);
 
-  node_splitting(nodes[index].left);
-  node_splitting(nodes[index].right);
+  ++depth;
+  int depthl = depth;
+  int depthr = depth;
+
+  node_splitting(nodes[index].left, depthl);
+  node_splitting(nodes[index].right, depthr);
+
+  depth = max(depthl,depthr);
 }
 
 void CudaKdTree::Impl::renderGL(int index, vvColor color) const
@@ -903,7 +909,21 @@ void CudaKdTree::updateTransfunc(const visionaray::texture_ref<visionaray::vec4,
 
   impl_->nodes.clear();
   impl_->nodes.emplace_back(root);
-  impl_->node_splitting(0);
+  int depth = 1;
+  impl_->node_splitting(0, depth);
+  int numInner = 0;
+  int numLeaves = 0;
+#if 1 // leaves and depth stats
+  visionaray::vec3 ignoreEye(1);
+  impl_->traverse(0 /*root*/, ignoreEye, [&numInner,&numLeaves](Impl::Node const& n)
+  {
+    if (n.left == -1 && n.right == -1)
+      numLeaves++;
+    else
+      numInner++;
+  }, true);
+  std::cout << "inner,leaves,depth: " << numInner << ',' << numLeaves << ',' << depth << ",\n";
+#endif
 #ifdef BUILD_TIMING
   //std::cout << "splitting: " << timer.elapsed() << " sec.\n";
   double ttt = timer.elapsed();
@@ -913,7 +933,7 @@ void CudaKdTree::updateTransfunc(const visionaray::texture_ref<visionaray::vec4,
 #if 1//STATISTICS
   static int cnt = 0;
   static std::vector<double> values;
-  if (cnt == 0) // Occupancy stats
+  if (0) //cnt == 0) // Occupancy stats
   {++cnt;std::cout << std::endl;
   // Number of non-empty voxels (overall), number of 26-connected voxels
   thrust::host_vector<uint8_t> host_voxels(size_t(impl_->vox[0])*impl_->vox[1]*impl_->vox[2]);
