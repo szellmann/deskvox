@@ -34,7 +34,12 @@ extern "C" const char ptxCode[];
 
 struct vvOptixRenderer::Impl
 {
-  Impl() : tree(virvo::SkipTree::SVTKdTree) {}
+  Impl()
+    : tree(virvo::SkipTree::SVTKdTree)
+    , avgFrameTime(0.)
+    , frameCount(0)
+  {
+  }
 
   virvo::SkipTree tree;
 
@@ -62,6 +67,9 @@ struct vvOptixRenderer::Impl
   optix::Buffer           transfuncBuffer;
   optix::TextureSampler   transfunc;
   optix::Buffer           transfuncIDs;
+
+  double avgFrameTime;
+  unsigned frameCount;
 
   void initOptix()
   {
@@ -260,12 +268,11 @@ void vvOptixRenderer::renderVolumeGL()
   virvo::CudaTimer t;
   impl_->context->launch(0, viewport.w, viewport.h);
 
+  impl_->avgFrameTime += t.elapsed();
+  impl_->frameCount += 1;
+
   std::cout << std::fixed << std::setprecision(8);
-  /*static*/ double avg = 0.0;
-  /*static*/ size_t cnt = 0;
-  avg += t.elapsed();
-  cnt += 1;
-  std::cout << avg/cnt << std::endl;
+  std::cout << impl_->avgFrameTime/impl_->frameCount << std::endl;
 
   virvo::RenderTarget* rt = getRenderTarget();
   const float* colors = (const float*)impl_->colorBuffer->map();
@@ -340,6 +347,14 @@ void vvOptixRenderer::updateVolumeData()
   }
 }
 
+bool vvOptixRenderer::resize(int w, int h)
+{
+  impl_->avgFrameTime = 0.;
+  impl_->frameCount = 0;
+
+  return vvRenderer::resize(w, h);
+}
+
 void vvOptixRenderer::setCurrentFrame(size_t frame)
 {
 }
@@ -350,6 +365,12 @@ bool vvOptixRenderer::checkParameter(ParameterType param, vvParam const& value) 
 
 void vvOptixRenderer::setParameter(ParameterType param, const vvParam& newValue)
 {
+  if (param == VV_QUALITY)
+  {
+    impl_->avgFrameTime = 0.;
+    impl_->frameCount = 0;
+  }
+
   vvRenderer::setParameter(param, newValue);
 }
 
