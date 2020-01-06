@@ -67,6 +67,10 @@
 #include "fileio/gdcm.h"
 #endif
 
+#if VV_HAVE_HDF5
+#include "fileio/flash.h"
+#endif
+
 #include <boost/detail/endian.hpp>
 #include <boost/algorithm/string.hpp>
 
@@ -89,7 +93,7 @@ using namespace virvo;
 enum Format
 {
     WL, RVF, XVF, AVF, XB7, ASC, TGA, TIFF, VTK, VHDCT, VHDMRI, RGB, PGM,
-    VHD, DAT, DCOM, VMR, VTC, NII, FITS, NRRD,  XIMG, IEEE, HDR, VOLB, DDS, GKENT,
+    VHD, DAT, DCOM, VMR, VTC, NII, FITS, FLASH, NRRD,  XIMG, IEEE, HDR, VOLB, DDS, GKENT,
     SYNTH, Incomplete, Unknown
 };
 
@@ -4300,6 +4304,27 @@ vvFileIO::ErrorType vvFileIO::loadFitsFile(vvVolDesc *vd)
 }
 
 //----------------------------------------------------------------------------
+/** Loader for voxel file in Fits format.
+ */
+vvFileIO::ErrorType vvFileIO::loadFlashFile(vvVolDesc *vd)
+{
+#if VV_HAVE_HDF5
+    try
+    {
+        virvo::flash::load(vd);
+        return OK;
+    }
+    catch (std::exception& e)
+    {
+        VV_LOG(0) << e.what();
+    }
+#else
+    VV_UNUSED(vd);
+#endif
+    return FILE_ERROR;
+}
+
+//----------------------------------------------------------------------------
 /** Loader for voxel file in nrrd (teem volume file) format.
  */
 vvFileIO::ErrorType vvFileIO::loadNrrdFile(vvVolDesc* vd)
@@ -5543,6 +5568,10 @@ vvFileIO::ErrorType vvFileIO::loadVolumeData(vvVolDesc* vd, LoadType sec, bool a
                                                   // FITS file = Flexible Image Transport System
   else if (format == FITS)
     err = loadFitsFile(vd);
+
+                                                  // FLASH file
+  else if (format == FLASH)
+    err = loadFlashFile(vd);
 
                                                   // NRRD file = Teem nrrd volume file
   else if (format == NRRD)

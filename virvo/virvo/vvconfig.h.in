@@ -11,6 +11,7 @@
 #cmakedefine01 VV_HAVE_FFMPEG
 #cmakedefine01 VV_HAVE_GDCM
 #cmakedefine01 VV_HAVE_GLEW
+#cmakedefine01 VV_HAVE_HDF5
 #cmakedefine01 VV_HAVE_JPEGTURBO
 #cmakedefine01 VV_HAVE_NIFTI
 #cmakedefine01 VV_HAVE_NORM

@@ -123,6 +123,7 @@ set(VIRVO_HEADERS
   cuda/utils.h
 
   fileio/exceptions.h
+  fileio/flash.h
   fileio/nifti.h
   fileio/nrrd.h
 

@@ -1,4 +1,5 @@
 find_package(Boost COMPONENTS filesystem serialization system REQUIRED)
+find_package(HDF5 COMPONENTS CXX)
 find_package(Nifti)
 find_package(Teem)
 find_package(cfitsio)
@@ -18,6 +19,8 @@ endif()
 if(DESKVOX_USE_GDCM)
 deskvox_use_package(GDCM)
 endif()
+include_directories(${HDF5_CXX_INCLUDE_DIRS})
+deskvox_use_package(HDF5)
 deskvox_use_package(Nifti)
 deskvox_use_package(Teem)
 deskvox_use_package(cfitsio)
@@ -37,6 +40,7 @@ set(VIRVO_FILEIO_HEADERS
 
     gdcm.h
     feature.h
+    flash.h
     nifti.h
     nrrd.h
     fits.h
@@ -57,6 +61,7 @@ set(VIRVO_FILEIO_SOURCES
 
     gdcm.cpp
     feature.cpp
+    flash.cpp
     nifti.cpp
     nrrd.cpp
     fits.cpp

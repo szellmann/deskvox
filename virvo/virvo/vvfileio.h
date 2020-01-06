@@ -131,6 +131,7 @@ class VIRVO_FILEIOEXPORT vvFileIO
     ErrorType loadNiftiFile(vvVolDesc* vd);
     ErrorType saveNiftiFile(const vvVolDesc* vd);
     ErrorType loadFitsFile(vvVolDesc* vd);
+    ErrorType loadFlashFile(vvVolDesc* vd);
     ErrorType loadNrrdFile(vvVolDesc*);
     ErrorType saveNrrdFile(const vvVolDesc*);
     ErrorType loadXIMGFile(vvVolDesc*);
