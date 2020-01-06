@@ -18,13 +18,18 @@
 // License along with this library (see license.txt); if not, write to the
 // Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
+#ifdef HAVE_CONFIG_H
+#include "vvconfig.h"
+#endif
+
 #include <cassert>
 
 #include "spaceskip/kdtree.h"
-#include "spaceskip/lbvh.h"
-
 #include "spaceskip/grid.h"
+#if VV_HAVE_CUDA
 #include "spaceskip/cudakdtree.h"
+#include "spaceskip/lbvh.h"
+#endif
 
 #include "vvclock.h"
 #include "vvopengl.h"
@@ -39,8 +44,10 @@ struct SkipTree::Impl
   SkipTree::Technique technique;
 
   KdTree kdtree;
+#if VV_HAVE_CUDA
   CudaKdTree cuda_kdtree;
   BVH bvh;
+#endif
   GridAccelerator grid;
 };
 
@@ -63,10 +70,12 @@ void SkipTree::updateVolume(const vvVolDesc& vd)
 {
   if (impl_->technique == SVTKdTree)
     impl_->kdtree.updateVolume(vd);
+#if VV_HAVE_CUDA
   else if (impl_->technique == SVTKdTreeCU)
     impl_->cuda_kdtree.updateVolume(vd);
   else if (impl_->technique == LBVH)
     impl_->bvh.updateVolume(vd);
+#endif
   else if (impl_->technique == Grid)
     impl_->grid.updateVolume(vd);
 }
@@ -91,10 +100,12 @@ void SkipTree::updateTransfunc(const uint8_t* data,
 
     if (impl_->technique == SVTKdTree)
       impl_->kdtree.updateTransfunc(transfunc);
+#if VV_HAVE_CUDA
     else if (impl_->technique == SVTKdTreeCU)
       impl_->cuda_kdtree.updateTransfunc(transfunc);
     else if (impl_->technique == LBVH)
       impl_->bvh.updateTransfunc(transfunc);
+#endif
     else if (impl_->technique == Grid)
       impl_->grid.updateTransfunc(transfunc);
   }
@@ -104,10 +115,12 @@ SkipTreeNode* SkipTree::getNodesDevPtr(int& numNodes)
 {
   if (impl_->technique == SVTKdTree)
     return impl_->kdtree.getNodesDevPtr(numNodes);
+#if VV_HAVE_CUDA
   else if (impl_->technique == SVTKdTreeCU)
     return impl_->cuda_kdtree.getNodesDevPtr(numNodes);
   else if (impl_->technique == LBVH)
     return impl_->bvh.getNodesDevPtr(numNodes);
+#endif
 
   numNodes = 0;
   return nullptr;
@@ -125,6 +138,7 @@ std::vector<aabb> SkipTree::getSortedBricks(vec3 eye, bool frontToBack)
         visionaray::vec3(eye.x, eye.y, eye.z),
         frontToBack);
   }
+#if VV_HAVE_CUDA
   else if (impl_->technique == LBVH)
   {
     leaves = impl_->bvh.get_leaf_nodes(
@@ -138,6 +152,7 @@ std::vector<aabb> SkipTree::getSortedBricks(vec3 eye, bool frontToBack)
         frontToBack
         );
   }
+#endif
 
   result.resize(leaves.size());
 
@@ -177,10 +192,12 @@ void SkipTree::renderGL(vvColor color)
 {
   if (impl_->technique == SVTKdTree)
     impl_->kdtree.renderGL(color);
+#if VV_HAVE_CUDA
   else if (impl_->technique == SVTKdTreeCU)
     impl_->cuda_kdtree.renderGL(color);
   else if (impl_->technique == LBVH)
     impl_->bvh.renderGL(color);
+#endif
 }
 
 } // namespace virvo

@@ -22,7 +22,7 @@
 #include "vvconfig.h"
 #endif
 
-#ifdef VV_HAVE_CUDA
+#if VV_HAVE_CUDA
 #include <cuda_runtime_api.h>
 #endif
 
@@ -34,7 +34,9 @@
 
 KdTree::~KdTree()
 {
+#if VV_HAVE_CUDA
   cudaFree(d_nodes);
+#endif
 }
 
 void KdTree::updateVolume(vvVolDesc const& vd, int channel)
@@ -152,7 +154,7 @@ void KdTree::node_splitting(int index)
 
 virvo::SkipTreeNode* KdTree::getNodesDevPtr(int& numNodes)
 {
-#ifdef VV_HAVE_CUDA
+#if VV_HAVE_CUDA
   using visionaray::vec3;
 
   numNodes = static_cast<int>(nodes.size());
