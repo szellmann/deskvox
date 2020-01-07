@@ -31,6 +31,7 @@ class vvVolDesc;
 
 namespace virvo { namespace flash {
 
+bool can_load(const vvVolDesc *vd);
 void load(vvVolDesc* vd);
 //void save(const vvVolDesc* vd);
 

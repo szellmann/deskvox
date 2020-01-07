@@ -1,6 +1,10 @@
+#include "flash.h"
+
+#if VV_HAVE_HDF5
 #include <array>
 #include <cassert>
 #include <cfloat>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -203,15 +207,21 @@ void read_variable(variable_t& var, H5::H5File const& file, char const* varname)
     //std::cout << dims[0] << ' ' << dims[1] << ' ' << dims[2] << ' ' << dims[3] << '\n';
 }
 
-void make_cells(grid_t const& grid, variable_t const& var, std::string base_filename)
+void resample(grid_t const& grid, variable_t const& var, vvVolDesc& vd, int nx, int ny, int nz)
 {
+    vd.vox[0] = nx;
+    vd.vox[1] = ny;
+    vd.vox[2] = nz;
+    vd.frames = 1;
+    vd.setChan(1);
+    vd.setDist(1.f,1.f,1.f);
+    vd.bpc = 1;
+    //vd.mapping(0) = virvo::vec2(0, UCHAR_MAX);
+    vd.mapping(0) = virvo::vec2(-3.378636, 11.01426);
+    uint8_t* raw = new uint8_t[vd.getFrameBytes()];
+    vd.addFrame(raw, vvVolDesc::ARRAY_DELETE);
+
     std::cout << std::fixed;
-
-    std::string cellfile = base_filename + ".cells";
-    std::string scalarfile = base_filename + ".scalars";
-
-    std::ofstream cell_file(cellfile);
-    std::ofstream scalar_file(scalarfile);
 
     // Length of the sides of the bounding box
     double len_total[3] = {
@@ -223,7 +233,7 @@ void make_cells(grid_t const& grid, variable_t const& var, std::string base_file
     //std::cout << len_total[0] << ' ' << len_total[1] << ' ' << len_total[2] << '\n';
 
     int max_level = 0;
-    double len[3];
+    double len[3] = { 0.0 };
     for (size_t i = 0; i < var.global_num_blocks; ++i)
     {
         if (grid.refine_level[i] > max_level)
@@ -253,6 +263,8 @@ void make_cells(grid_t const& grid, variable_t const& var, std::string base_file
     float min_scalar =  FLT_MAX;
     for (size_t i = 0; i < var.global_num_blocks; ++i)
     {
+        std::cout << "Block (" << (i+1) << '/' << var.global_num_blocks << ")\n";
+
         if (grid.node_type[i] == 1) // leaf!
         {
             // Project min on vox grid
@@ -266,11 +278,11 @@ void make_cells(grid_t const& grid, variable_t const& var, std::string base_file
                 };
             //std::cout << lower[0] << ' ' << lower[1] << ' ' << lower[2] << '\n';
 
-            for (int z = 0; z < var.nzb; ++z)
+            for (int z = 0; z < (int)var.nzb; ++z)
             {
-                for (int y = 0; y < var.nyb; ++y)
+                for (int y = 0; y < (int)var.nyb; ++y)
                 {
-                    for (int x = 0; x < var.nxb; ++x)
+                    for (int x = 0; x < (int)var.nxb; ++x)
                     {
                         double coord[3] = {
                             lower[0] / static_cast<double>(vox[0]) * len_total[0] + grid.bnd_box[0].min.x,
@@ -278,17 +290,18 @@ void make_cells(grid_t const& grid, variable_t const& var, std::string base_file
                             lower[2] / static_cast<double>(vox[2]) * len_total[2] + grid.bnd_box[2].min.z
                             };
 
-                        //// Clip out a region of interest
-                        //// Clip planes are specific to the SILCC molecular cloud data set
-                        //static const double XMIN = 3.5e20;
-                        //static const double XMAX = 6.2e20;
-                        //static const double YMIN = -4.9e20;
-                        //static const double YMAX = -2.2e20;
-                        //static const double ZMIN = -12.e19;
-                        //static const double ZMAX = 12.e19;
-                        //if (coord[0] <  XMIN || coord[0] > XMAX || coord[1] < YMIN || coord[1] > YMAX || coord[2] < ZMIN || coord[2] > ZMAX)
-                        //    continue;
+                        // Clip out a region of interest
+                        // Clip planes are specific to the SILCC molecular cloud data set
+                        static const double XMIN = 3.5e20;
+                        static const double XMAX = 6.2e20;
+                        static const double YMIN = -4.9e20;
+                        static const double YMAX = -2.2e20;
+                        static const double ZMIN = -12.e19;
+                        static const double ZMAX = 12.e19;
+                        if (coord[0] <  XMIN || coord[0] > XMAX || coord[1] < YMIN || coord[1] > YMAX || coord[2] < ZMIN || coord[2] > ZMAX)
+                            continue;
 
+                        // data into var
                         size_t index = i * var.nxb * var.nyb * var.nzb
                                             + z * var.nyb * var.nxb
                                             + y * var.nxb
@@ -296,29 +309,75 @@ void make_cells(grid_t const& grid, variable_t const& var, std::string base_file
 
                         double scalar = static_cast<double>(var.data[index]);
                         //scalar += 15429999982016076972032.000000;
-                        //scalar = scalar != .0 ? log(scalar) : scalar;
+                        scalar = scalar != .0 ? log(scalar) : scalar;
                         float scalarf = static_cast<float>(scalar);
                         max_scalar = std::max(max_scalar, scalarf);
                         min_scalar = std::min(min_scalar, scalarf);
-                        int lowerer[3] = { lower[0] + x*cellsize, lower[1] + y*cellsize, lower[2] + z*cellsize };
-                        cell_file.write((char*)&lowerer, sizeof(int32_t) * 3);
-                        cell_file.write((char*)&level, sizeof(int32_t));
-                        scalar_file.write((char*)&scalarf, sizeof(float));
+
+                        for (int zz = lower[2] + z*cellsize; zz < lower[2] + z*cellsize + cellsize; ++zz)
+                        {
+                            for (int yy = lower[1] + y*cellsize; yy < lower[1] + y*cellsize + cellsize; ++yy)
+                            {
+                                for (int xx = lower[0] + x*cellsize; xx < lower[0] + x*cellsize + cellsize; ++xx)
+                                {
+                                    double coord_XXX[3] = {
+                                        xx / static_cast<double>(vox[0]) * len_total[0] + grid.bnd_box[0].min.x,
+                                        yy / static_cast<double>(vox[1]) * len_total[1] + grid.bnd_box[1].min.y,
+                                        zz / static_cast<double>(vox[2]) * len_total[2] + grid.bnd_box[2].min.z
+                                        };
+
+                                    // volume coord
+                                    int vx = (coord_XXX[0] - XMIN) / (XMAX - XMIN) * (nx - 1 + 0.999);
+                                    int vy = (coord_XXX[1] - YMIN) / (YMAX - YMIN) * (ny - 1 + 0.999);
+                                    int vz = (coord_XXX[2] - ZMIN) / (ZMAX - ZMIN) * (nz - 1 + 0.999);
+                                    //std::cout << vx << ' ' << vy << ' ' << vz << '\n';
+
+                                    vd.setChannelValue(scalarf, 0, vx, vy, vz, 0);
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    //std::cout << min_scalar << ' ' << max_scalar << '\n';
-    std::cout << "Output written to:\n";
-    std::cout << "Scalars: " << scalarfile << '\n';
-    std::cout << "Cells:   " << cellfile << '\n';
+    vd.range(0) = virvo::vec2(min_scalar, max_scalar);
+    std::cout << min_scalar << ' ' << max_scalar << '\n';
+}
+
+namespace virvo
+{
+namespace flash
+{
+
+bool can_load(const vvVolDesc *vd)
+{
+    std::string filename(vd->getFilename());
+
+    try
+    {
+        H5::H5File file(filename.c_str(), H5F_ACC_RDONLY);
+
+        // Read simulation info
+        sim_info_t sim_info;
+        read_sim_info(sim_info, file);
+
+        // Read grid data
+        grid_t grid;
+        read_grid(grid, file);
+
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 void load(vvVolDesc* vd)
 {
     std::string filename(vd->getFilename());
-    std::string var = "TEMP";
+    std::string var = "temp";
 
     try
     {
@@ -333,10 +392,10 @@ void load(vvVolDesc* vd)
         read_grid(grid, file);
 
         // Read data
-        variable_t density;
-        read_variable(density, file, var.c_str());
+        variable_t* density = new variable_t;
+        read_variable(*density, file, var.c_str());
 
-        //make_cells(grid, density, outname);
+        resample(grid, *density, *vd, 512, 512, 512);
     }
     catch (H5::FileIException error)
     {
@@ -356,3 +415,7 @@ void load(vvVolDesc* vd)
 
     return;
 }
+
+} // flash
+} // virvo
+#endif // VV_HAVE_HDF5

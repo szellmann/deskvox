@@ -173,6 +173,12 @@ Format guessFormat(const vvVolDesc* vd)
   }
 #endif
 
+  // Flash
+#if VV_HAVE_HDF5
+  if (virvo::flash::can_load(vd))
+    return FLASH;
+#endif
+
   // XVF
   {
     std::ifstream fs;
