@@ -4858,6 +4858,46 @@ void vvVolDesc::resizeEdgeMax(float len)
 }
 
 //----------------------------------------------------------------------------
+void vvVolDesc::setChannelValue(float value, int frame, int x, int y, int z, int channel)
+{
+  uint8_t* data = getRaw(frame);
+  size_t index = (x + y * vox[0] + size_t(z) * vox[0] * vox[1])
+                        * getBPV() + channel * bpc;
+
+  switch (bpc)
+  {
+    case 1:
+    {
+      value -= mapping(channel).x;
+      value /= mapping(channel).y-mapping(channel).x;
+      value *= 255;
+      data[index] = static_cast<uint8_t>(value);
+      break;
+    }
+    case 2:
+    {
+      value -= mapping(channel).x;
+      value /= mapping(channel).y-mapping(channel).x;
+      unsigned short ival = value * 65535;
+#ifdef BOOST_LITTLE_ENDIAN
+      data[index] = static_cast<uint8_t>(ival);
+      data[index+1] = static_cast<uint8_t>(ival >> 8);
+#else
+      data[index] = static_cast<uint8_t>(ival >> 8);
+      data[index+1] = static_cast<uint8_t>(ival);
+#endif
+      break;
+    }
+    case 4:
+    {
+      memcpy(data + index, &value, sizeof(float));
+      break;
+    }
+    default: assert(0); break;
+  }
+}
+
+//----------------------------------------------------------------------------
 float vvVolDesc::getChannelValue(int frame, size_t indexXYZ, int channel) const
 {
   uint8_t* data = getRaw(frame);

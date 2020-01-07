@@ -344,6 +344,7 @@ public:
     float  findClampValue(int, int channel, float) const;
     void   computeVolume(int, size_t, size_t, size_t);
     void   resizeEdgeMax(float);
+    void   setChannelValue(float value, int frame, int x, int y, int z, int channel);
     float  getChannelValue(int frame, size_t indexXYZ, int channel) const;
     float  getChannelValue(int frame, size_t x, size_t y, size_t z, int channel) const;
     void   getLineHistData(int, int, int, int, int, int, std::vector< std::vector< float > >& resArray);
