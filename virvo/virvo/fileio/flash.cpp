@@ -217,7 +217,8 @@ void resample(grid_t const& grid, variable_t const& var, vvVolDesc& vd, int nx, 
     vd.setDist(1.f,1.f,1.f);
     vd.bpc = 1;
     //vd.mapping(0) = virvo::vec2(0, UCHAR_MAX);
-    vd.mapping(0) = virvo::vec2(-3.378636, 11.01426);
+    //vd.mapping(0) = virvo::vec2(-3.378636, 12.535687);
+    vd.mapping(0) = virvo::vec2(-66.081818, -36.690800);
     uint8_t* raw = new uint8_t[vd.getFrameBytes()];
     vd.addFrame(raw, vvVolDesc::ARRAY_DELETE);
 
@@ -255,7 +256,7 @@ void resample(grid_t const& grid, variable_t const& var, vvVolDesc& vd, int nx, 
     vox[1] = static_cast<int>(round(len_total[1] / len[1]));
     vox[2] = static_cast<int>(round(len_total[2] / len[2]));
 
-    std::cout << vox[0] << ' ' << vox[1] << ' ' << vox[2] << '\n';
+    //std::cout << vox[0] << ' ' << vox[1] << ' ' << vox[2] << '\n';
 
     //std::cout << grid.bnd_box[0].min.x << ' ' << grid.bnd_box[0].min.y << ' ' << grid.bnd_box[0].min.z << '\n';
     //std::cout << grid.bnd_box[0].max.x << ' ' << grid.bnd_box[0].max.y << ' ' << grid.bnd_box[0].max.z << '\n';
@@ -263,7 +264,7 @@ void resample(grid_t const& grid, variable_t const& var, vvVolDesc& vd, int nx, 
     float min_scalar =  FLT_MAX;
     for (size_t i = 0; i < var.global_num_blocks; ++i)
     {
-        std::cout << "Block (" << (i+1) << '/' << var.global_num_blocks << ")\n";
+        //std::cout << "Block (" << (i+1) << '/' << var.global_num_blocks << ")\n";
 
         if (grid.node_type[i] == 1) // leaf!
         {
@@ -377,7 +378,7 @@ bool can_load(const vvVolDesc *vd)
 void load(vvVolDesc* vd)
 {
     std::string filename(vd->getFilename());
-    std::string var = "temp";
+    std::string var = "dens";
 
     try
     {
