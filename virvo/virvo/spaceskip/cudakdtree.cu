@@ -662,7 +662,7 @@ void CudaKdTree::Impl::node_splitting(int index)
   // Split along longest axis
   vec3i len = nodes[index].bbox.max - nodes[index].bbox.min;
 
-  int axis = max_element(len);
+  int axis = max_index(len);
 
   static const int NumBins = 4;//BINS;
 
