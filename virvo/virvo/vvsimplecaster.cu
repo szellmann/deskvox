@@ -675,8 +675,8 @@ struct vvSimpleCaster::Impl
         : sched(8, 8)
 //      , tree(virvo::SkipTree::Grid)
 //      , tree(virvo::SkipTree::LBVH)
-        , tree(virvo::SkipTree::SVTKdTree)
-//      , tree(virvo::SkipTree::SVTKdTreeCU)
+//        , tree(virvo::SkipTree::SVTKdTree)
+      , tree(virvo::SkipTree::SVTKdTreeCU)
         , grid(virvo::SkipTree::Grid)
     {
     }
@@ -963,7 +963,7 @@ void vvSimpleCaster::renderVolumeGL()
         impl_->sched.frame(kernel, sparams);
     }
 
-    if (0)//_boundaries)
+    if (_boundaries)
     {
         glEnable(GL_DEPTH_TEST);
         glDepthRange(0,0.95);
@@ -1097,6 +1097,13 @@ void vvSimpleCaster::updateVolumeData()
 
 void  vvSimpleCaster::setCurrentFrame(size_t frame) 
 {
+    vvRenderer::setCurrentFrame(frame);
+
+    impl_->tree.updateVolume(*vd);
+    bool hybrid = false; // TODODODO
+    if (hybrid)
+        impl_->grid.updateVolume(*vd);
+    updateTransferFunction();
 }
 
 bool vvSimpleCaster::checkParameter(ParameterType param, vvParam const& value) const 
