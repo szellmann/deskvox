@@ -685,7 +685,7 @@ struct vvSimpleCaster::Impl
 
     cuda_sched<R> sched;
 
-    std::vector<cuda_texture<unorm<8>, 3>> volumes;
+    cuda_texture<unorm<8>, 3> volume;
 
     cuda_texture<vec4, 1> transfunc;
 
@@ -808,7 +808,7 @@ void vvSimpleCaster::renderVolumeGL()
 
     Kernel kernel;
 
-    kernel.volume = cuda_texture<unorm<8>, 3>::ref_type(impl_->volumes[vd->getCurrentFrame()]);
+    kernel.volume = cuda_texture<unorm<8>, 3>::ref_type(impl_->volume);
     kernel.transfunc = cuda_texture<vec4, 1>::ref_type(impl_->transfunc);
 
     kernel.bbox          = aabb(vec3(bbox.min.data()), vec3(bbox.max.data()));
@@ -1040,7 +1040,6 @@ void vvSimpleCaster::updateTransferFunction()
     tex_filter_mode filter_mode = getParameter(VV_SLICEINT).asInt() == virvo::Linear ? Linear : Nearest;
     virvo::PixelFormat texture_format = virvo::PF_R8;
     virvo::TextureUtil tu(vd);
-    for (int f = 0; f < vd->frames; ++f)
     {
         virvo::TextureUtil::Pointer tex_data = nullptr;
 
@@ -1048,12 +1047,12 @@ void vvSimpleCaster::updateTransferFunction()
             virvo::vec3i(vd->vox),
             texture_format,
             virvo::TextureUtil::All,
-            f);
+            vd->getCurrentFrame());
 
-        impl_->volumes[f] = cuda_texture<unorm<8>, 3>(vd->vox[0], vd->vox[1], vd->vox[2]);
-        impl_->volumes[f].reset(reinterpret_cast<unorm<8> const*>(tex_data));
-        impl_->volumes[f].set_address_mode(Clamp);
-        impl_->volumes[f].set_filter_mode(filter_mode);
+        impl_->volume = cuda_texture<unorm<8>, 3>(vd->vox[0], vd->vox[1], vd->vox[2]);
+        impl_->volume.reset(reinterpret_cast<unorm<8> const*>(tex_data));
+        impl_->volume.set_address_mode(Clamp);
+        impl_->volume.set_filter_mode(filter_mode);
     }
     }*/
 }
@@ -1074,35 +1073,27 @@ void vvSimpleCaster::updateVolumeData()
 
     virvo::PixelFormat texture_format = virvo::PF_R8;
 
-    impl_->volumes.resize(vd->frames);
-
-
     virvo::TextureUtil tu(vd);
-    for (int f = 0; f < vd->frames; ++f)
-    {
-        virvo::TextureUtil::Pointer tex_data = nullptr;
 
-        tex_data = tu.getTexture(virvo::vec3i(0),
-            virvo::vec3i(vd->vox),
-            texture_format,
-            virvo::TextureUtil::All,
-            f);
+    virvo::TextureUtil::Pointer tex_data = nullptr;
 
-        impl_->volumes[f] = cuda_texture<unorm<8>, 3>(vd->vox[0], vd->vox[1], vd->vox[2]);
-        impl_->volumes[f].reset(reinterpret_cast<unorm<8> const*>(tex_data));
-        impl_->volumes[f].set_address_mode(Clamp);
-        impl_->volumes[f].set_filter_mode(filter_mode);
-    }
+    tex_data = tu.getTexture(virvo::vec3i(0),
+        virvo::vec3i(vd->vox),
+        texture_format,
+        virvo::TextureUtil::All,
+        vd->getCurrentFrame());
+
+    impl_->volume = cuda_texture<unorm<8>, 3>(vd->vox[0], vd->vox[1], vd->vox[2]);
+    impl_->volume.reset(reinterpret_cast<unorm<8> const*>(tex_data));
+    impl_->volume.set_address_mode(Clamp);
+    impl_->volume.set_filter_mode(filter_mode);
 }
 
 void  vvSimpleCaster::setCurrentFrame(size_t frame) 
 {
     vvRenderer::setCurrentFrame(frame);
 
-    impl_->tree.updateVolume(*vd);
-    bool hybrid = false; // TODODODO
-    if (hybrid)
-        impl_->grid.updateVolume(*vd);
+    updateVolumeData();
     updateTransferFunction();
 }
 
@@ -1121,11 +1112,7 @@ void vvSimpleCaster::setParameter(ParameterType param, const vvParam& value)
             {
                 _interpolation = static_cast< virvo::tex_filter_mode >(value.asInt());
                 tex_filter_mode filter_mode = _interpolation == virvo::Linear ? Linear : Nearest;
-
-                for (auto& tex : impl_->volumes)
-                {
-                    tex.set_filter_mode(filter_mode);
-                }
+                impl_->volume.set_filter_mode(filter_mode);
             }
         }
         break;
