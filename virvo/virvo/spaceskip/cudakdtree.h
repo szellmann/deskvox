@@ -56,6 +56,9 @@ namespace virvo
 
     std::vector<visionaray::aabb> get_leaf_nodes(visionaray::vec3 eye, bool frontToBack) const;
 
+    uint8_t const* get_empty() const;
+    visionaray::vec3i get_empty_dims() const;
+
     void renderGL(vvColor color) const;
 
   private:

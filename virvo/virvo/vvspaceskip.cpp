@@ -169,12 +169,20 @@ std::vector<aabb> SkipTree::getSortedBricks(vec3 eye, bool frontToBack)
 
 SimpleGrid SkipTree::getSimpleGrid() const
 {
-  assert(impl_->technique == SVTKdTree);
+  assert(impl_->technique == SVTKdTree || impl_->technique == SVTKdTreeCU);
 
-  return {
-    impl_->kdtree.get_empty(),
-    virvo::vec3i(impl_->kdtree.get_empty_dims().data())
-    };
+  if (impl_->technique == SVTKdTree)
+    return {
+      impl_->kdtree.get_empty(),
+      virvo::vec3i(impl_->kdtree.get_empty_dims().data())
+      };
+  else if (impl_->technique == SVTKdTreeCU)
+    return {
+      impl_->cuda_kdtree.get_empty(),
+      virvo::vec3i(impl_->cuda_kdtree.get_empty_dims().data())
+      };
+  else
+    return {};
 }
 
 MinMaxGrid SkipTree::getMinMaxGrid() const

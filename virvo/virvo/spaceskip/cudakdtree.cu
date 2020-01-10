@@ -18,6 +18,9 @@
 // License along with this library (see license.txt); if not, write to the
 // Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
+// Produce a grid with cell size 16^3 when building up SVTs
+#define WITH_GRID 0
+
 #include <thrust/system/cuda/vector.h>
 #include <thrust/system/cuda/execution_policy.h>
 #include <thrust/host_vector.h>
@@ -64,6 +67,30 @@ using namespace visionaray;
 #define BX 4
 #define BY 8
 #define BZ 8
+
+__device__ inline char atomicAdd(unsigned char* address, char val) {
+    // offset, in bytes, of the char* address within the 32-bit address of the space that overlaps it
+    size_t long_address_modulo = (size_t) address & 3;
+    // the 32-bit address that overlaps the same memory
+    auto* base_address = (unsigned int*) ((char*) address - long_address_modulo);
+    // A 0x3210 selector in __byte_perm will simply select all four bytes in the first argument in the same order.
+    // The "4" signifies the position where the first byte of the second argument will end up in the output.
+    unsigned int selectors[] = {0x3214, 0x3240, 0x3410, 0x4210};
+    // for selecting bytes within a 32-bit chunk that correspond to the char* address (relative to base_address)
+    unsigned int selector = selectors[long_address_modulo];
+    unsigned int long_old, long_assumed, long_val, replacement;
+
+    long_old = *base_address;
+
+    do {
+        long_assumed = long_old;
+        // replace bits in long_old that pertain to the char address with those from val
+        long_val = __byte_perm(long_old, 0, long_address_modulo) + val;
+        replacement = __byte_perm(long_old, long_val, selector);
+        long_old = atomicCAS(base_address, long_assumed, replacement);
+    } while (long_old != long_assumed);
+    return __byte_perm(long_old, 0, long_address_modulo);
+}
 
 //-------------------------------------------------------------------------------------------------
 //
@@ -180,6 +207,10 @@ void swap(T& a, T& b)
 template <typename Tex>
 __global__ void svt_build_boxes(Tex transfunc,
         uint8_t* voxels,
+#if WITH_GRID
+        uint8_t* empty_cells,
+        vec3i empty_cells_dims,
+#endif
         aabbi* boxes,
         int width,
         int height,
@@ -318,6 +349,15 @@ __global__ void svt_build_boxes(Tex transfunc,
   }
   else if (tx == 0 && ty == 0 && tz == 0)
   {
+#if WITH_GRID
+    // block dimensions are 8^3 but grid is 16^3
+    vec3i cellIndex(blockIdx.x/4,blockIdx.y/2,blockIdx.z/2);
+    //printf("%d %d %d\n",cellIndex.x,cellIndex.y,cellIndex.z);
+    int cellIndexLinear = cellIndex.z * empty_cells_dims.x * empty_cells_dims.y
+                        + cellIndex.y * empty_cells_dims.x
+                        + cellIndex.x;
+    atomicAdd(&empty_cells[cellIndexLinear], (char)-1);
+#endif
     // Search for the minimal volume bounding box
     // that contains #voxels contained in bbox!
 
@@ -415,6 +455,7 @@ struct CudaSVT
  ~CudaSVT()
   {
     cudaFree(voxels_);
+    cudaFree(empty_cells_);
   }
   void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
@@ -425,6 +466,10 @@ struct CudaSVT
 
   // Channel values from volume description
   uint8_t* voxels_ = nullptr;
+#if WITH_GRID
+  uint8_t* empty_cells_ = nullptr;
+  vec3i empty_cells_dims_;
+#endif
   // Local bounding boxes
   thrust::device_vector<aabbi> boxes_;
 
@@ -483,11 +528,25 @@ void CudaSVT<T>::build(Tex transfunc)
                    div_up(height,  (int)block_size.y),
                    div_up(depth,   (int)block_size.z));
 
+#if WITH_GRID
+    // That's a 16^3 grid
+    dim3 macro_cell_grid_size(div_up(width,  16),
+                              div_up(height, 16),
+                              div_up(depth,  16));
+    size_t len = sizeof(uint8_t) * macro_cell_grid_size.x * macro_cell_grid_size.y * macro_cell_grid_size.z;
+    std::cout << cudaGetErrorString(cudaFree(empty_cells_)) << '\n';
+    std::cout << cudaGetErrorString(cudaMalloc((void**)&empty_cells_, len)) << '\n';
+    std::cout << cudaGetErrorString(cudaMemset(empty_cells_, 0xFF, len)) << '\n';
+#endif
     boxes_.resize(grid_size.x * grid_size.y * grid_size.z);
 
     svt_build_boxes<<<grid_size, block_size>>>(
             transfunc,
             voxels_,
+#if WITH_GRID
+            empty_cells_,
+            empty_cells_dims_,
+#endif
             thrust::raw_pointer_cast(boxes_.data()),
             width,
             height,
@@ -1046,6 +1105,24 @@ std::vector<visionaray::aabb> CudaKdTree::get_leaf_nodes(visionaray::vec3 eye, b
   }, frontToBack);
 
   return result;
+}
+
+uint8_t const* CudaKdTree::get_empty() const
+{
+#if WITH_GRID
+  return impl_->svt.empty_cells_;
+#else
+  return nullptr;
+#endif
+}
+
+visionaray::vec3i CudaKdTree::get_empty_dims() const
+{
+#if WITH_GRID
+  return impl_->svt.empty_cells_dims_;
+#else
+  return {};
+#endif
 }
 
 void CudaKdTree::renderGL(vvColor color) const
