@@ -68,28 +68,25 @@ using namespace visionaray;
 #define BY 8
 #define BZ 8
 
-__device__ inline char atomicAdd(unsigned char* address, char val) {
-    // offset, in bytes, of the char* address within the 32-bit address of the space that overlaps it
+__device__ static inline char atomicCAS(uint8_t* address, uint8_t expected, uint8_t desired) {
     size_t long_address_modulo = (size_t) address & 3;
-    // the 32-bit address that overlaps the same memory
-    auto* base_address = (unsigned int*) ((char*) address - long_address_modulo);
-    // A 0x3210 selector in __byte_perm will simply select all four bytes in the first argument in the same order.
-    // The "4" signifies the position where the first byte of the second argument will end up in the output.
+    auto* base_address = (unsigned int*) ((uint8_t*) address - long_address_modulo);
     unsigned int selectors[] = {0x3214, 0x3240, 0x3410, 0x4210};
-    // for selecting bytes within a 32-bit chunk that correspond to the char* address (relative to base_address)
-    unsigned int selector = selectors[long_address_modulo];
+
+    unsigned int sel = selectors[long_address_modulo];
     unsigned int long_old, long_assumed, long_val, replacement;
+    uint8_t old;
 
+    long_val = (unsigned int) desired;
     long_old = *base_address;
-
     do {
         long_assumed = long_old;
-        // replace bits in long_old that pertain to the char address with those from val
-        long_val = __byte_perm(long_old, 0, long_address_modulo) + val;
-        replacement = __byte_perm(long_old, long_val, selector);
+        replacement = __byte_perm(long_old, long_val, sel);
         long_old = atomicCAS(base_address, long_assumed, replacement);
-    } while (long_old != long_assumed);
-    return __byte_perm(long_old, 0, long_address_modulo);
+        old = (uint8_t) ((long_old >> (long_address_modulo * 8)) & 0x000000ff);
+    } while (expected == old && long_assumed != long_old);
+
+    return old;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -356,7 +353,8 @@ __global__ void svt_build_boxes(Tex transfunc,
     int cellIndexLinear = cellIndex.z * empty_cells_dims.x * empty_cells_dims.y
                         + cellIndex.y * empty_cells_dims.x
                         + cellIndex.x;
-    atomicAdd(&empty_cells[cellIndexLinear], (char)-1);
+    atomicCAS(&empty_cells[cellIndexLinear], 0x01, 0x0);
+    //printf("%d %d\n",cellIndexLinear, (int)empty_cells[cellIndexLinear]);
 #endif
     // Search for the minimal volume bounding box
     // that contains #voxels contained in bbox!
@@ -532,13 +530,13 @@ void CudaSVT<T>::build(Tex transfunc)
 
 #if WITH_GRID
     // That's a 16^3 grid
-    dim3 macro_cell_grid_size(div_up(width,  16),
+    empty_cells_dims_ = vec3i(div_up(width,  16),
                               div_up(height, 16),
                               div_up(depth,  16));
-    size_t len = sizeof(uint8_t) * macro_cell_grid_size.x * macro_cell_grid_size.y * macro_cell_grid_size.z;
+    size_t len = sizeof(uint8_t) * empty_cells_dims_.x * empty_cells_dims_.y * empty_cells_dims_.z;
     cudaFree(empty_cells_);
     cudaError_t err = cudaMalloc((void**)&empty_cells_, len);
-    cudaMemset(empty_cells_, 0xFF, len);
+    cudaMemset(empty_cells_, 0x01, len);
 #endif
     boxes_.resize(grid_size.x * grid_size.y * grid_size.z);
 
@@ -569,6 +567,19 @@ void CudaSVT<T>::build(Tex transfunc)
 //
 //    for (auto b : h_boxes)
 //        if (b.valid()) std::cout << b.min << b.max << std::endl;
+
+//  dim3 macro_cell_grid_size(div_up(width,  16),
+//                            div_up(height, 16),
+//                            div_up(depth,  16));
+//  size_t numCells = macro_cell_grid_size.x * macro_cell_grid_size.y * macro_cell_grid_size.z;
+//  thrust::host_vector<uint8_t> h_empty_cells(numCells);
+//  cudaMemcpy(h_empty_cells.data(), empty_cells_, numCells*sizeof(uint8_t), cudaMemcpyDeviceToHost);
+//
+//  int numEmpty = 0;
+//  for (auto c : h_empty_cells)
+//    if (c) ++numEmpty;
+//  std::cout << "# empty cells: " << numEmpty << '\n';
+//  std::cout << "# non empty  : " << numCells-numEmpty << '\n';
 }
 
 struct device_combine
