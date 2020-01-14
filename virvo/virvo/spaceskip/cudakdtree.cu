@@ -19,7 +19,7 @@
 // Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
 // Produce a grid with cell size 16^3 when building up SVTs
-#define WITH_GRID 0
+#define WITH_GRID 1
 
 #include <thrust/system/cuda/vector.h>
 #include <thrust/system/cuda/execution_policy.h>
@@ -455,7 +455,9 @@ struct CudaSVT
  ~CudaSVT()
   {
     cudaFree(voxels_);
+#if WITH_GRID
     cudaFree(empty_cells_);
+#endif
   }
   void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
 
@@ -534,9 +536,9 @@ void CudaSVT<T>::build(Tex transfunc)
                               div_up(height, 16),
                               div_up(depth,  16));
     size_t len = sizeof(uint8_t) * macro_cell_grid_size.x * macro_cell_grid_size.y * macro_cell_grid_size.z;
-    std::cout << cudaGetErrorString(cudaFree(empty_cells_)) << '\n';
-    std::cout << cudaGetErrorString(cudaMalloc((void**)&empty_cells_, len)) << '\n';
-    std::cout << cudaGetErrorString(cudaMemset(empty_cells_, 0xFF, len)) << '\n';
+    cudaFree(empty_cells_);
+    cudaError_t err = cudaMalloc((void**)&empty_cells_, len);
+    cudaMemset(empty_cells_, 0xFF, len);
 #endif
     boxes_.resize(grid_size.x * grid_size.y * grid_size.z);
 
@@ -622,7 +624,7 @@ aabbi CudaSVT<T>::boundary(aabbi bbox, const cudaStream_t& stream) const
       thrust::cuda::par(alloc),
       //thrust::device,
       boxes_.begin() + min_index,
-      boxes_.begin() + max_index + 1,
+      boxes_.begin() + max_index,
       init,
       comb);
 }
