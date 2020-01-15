@@ -1013,7 +1013,9 @@ void vvSimpleCaster::updateTransferFunction()
     tf_ref.set_address_mode(Clamp);
     tf_ref.set_filter_mode(Nearest);
 
+    virvo::CudaTimer t;
     impl_->tree.updateTransfunc(reinterpret_cast<const uint8_t*>(tf_ref.data()), TF_WIDTH, 1, 1, virvo::PF_RGBA32F);
+    std::cout << "Build accel: " << t.elapsed() << '\n';
 
     bool hybridCPU = false;
     if (hybridCPU)
@@ -1059,6 +1061,8 @@ void vvSimpleCaster::updateTransferFunction()
 
 void vvSimpleCaster::updateVolumeData()
 {
+    virvo::CudaTimer t;
+
     vvRenderer::updateVolumeData();
 
     // Init GPU textures
@@ -1081,6 +1085,9 @@ void vvSimpleCaster::updateVolumeData()
     impl_->volume.set_address_mode(Clamp);
     impl_->volume.set_filter_mode(filter_mode);
 
+    std::cout << "Upload volume: " << t.elapsed() << '\n';
+    t.reset();
+
     // Init space skipping tree
     if (impl_->tree.getTechnique() == virvo::SkipTree::SVTKdTreeCU)
         impl_->tree.updateVolume(*vd, impl_->volume);
@@ -1092,6 +1099,8 @@ void vvSimpleCaster::updateVolumeData()
     bool hybridCPU = false;
     if (hybridCPU)
         impl_->grid.updateVolume(*vd);
+
+    std::cout << "Setup accel: " << t.elapsed() << '\n';
 }
 
 void  vvSimpleCaster::setCurrentFrame(size_t frame) 
