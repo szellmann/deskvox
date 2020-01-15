@@ -798,7 +798,7 @@ void vvSimpleCaster::renderVolumeGL()
         hybrid = false;
     }
     // Hybrid mode:
-    if (1)
+    if (0)
     {
         full = false;
         leaves = false;
@@ -1015,8 +1015,8 @@ void vvSimpleCaster::updateTransferFunction()
 
     impl_->tree.updateTransfunc(reinterpret_cast<const uint8_t*>(tf_ref.data()), TF_WIDTH, 1, 1, virvo::PF_RGBA32F);
 
-    bool hybrid = true;
-    if (hybrid)
+    bool hybridCPU = false;
+    if (hybridCPU)
     {
         impl_->grid.updateTransfunc(reinterpret_cast<const uint8_t*>(tf_ref.data()), TF_WIDTH, 1, 1, virvo::PF_RGBA32F);
     }
@@ -1089,8 +1089,8 @@ void vvSimpleCaster::updateVolumeData()
         impl_->tree.updateVolume(*vd);
     }
 
-    bool hybrid = true;
-    if (hybrid)
+    bool hybridCPU = false;
+    if (hybridCPU)
         impl_->grid.updateVolume(*vd);
 }
 
