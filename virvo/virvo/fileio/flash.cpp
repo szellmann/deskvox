@@ -396,7 +396,7 @@ void load(vvVolDesc* vd)
         variable_t* density = new variable_t;
         read_variable(*density, file, var.c_str());
 
-        resample(grid, *density, *vd, 512, 512, 512);
+        resample(grid, *density, *vd, 1024, 1024, 1024);
     }
     catch (H5::FileIException error)
     {
