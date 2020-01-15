@@ -21,6 +21,14 @@
 #ifndef VV_SPACESKIP_CUDA_KDTREE_H
 #define VV_SPACESKIP_CUDA_KDTREE_H
 
+#ifdef HAVE_CONFIG_H
+#include "vvconfig.h"
+#endif
+
+#if VV_HAVE_CUDA
+#include <cuda_runtime_api.h>
+#endif
+
 #include <memory>
 
 #undef MATH_NAMESPACE
@@ -28,9 +36,9 @@
 #include <visionaray/math/aabb.h>
 #include <visionaray/math/forward.h>
 
-#include <visionaray/texture/texture.h>
-
 #undef MATH_NAMESPACE
+
+#include <visionaray/texture/texture.h>
 
 #include <virvo/vvcolor.h>
 
@@ -48,6 +56,9 @@ namespace virvo
     CudaKdTree();
    ~CudaKdTree();
 
+#if VV_HAVE_VISIONARAY && VV_HAVE_CUDA
+    void updateVolume(vvVolDesc const& vd, visionaray::cuda_texture<visionaray::unorm<8>, 3>& tex);
+#endif
     void updateVolume(vvVolDesc const& vd, int channel = 0);
 
     void updateTransfunc(const visionaray::texture_ref<visionaray::vec4, 1>& transfunc);

@@ -66,6 +66,14 @@ SkipTree::Technique SkipTree::getTechnique() const
   return impl_->technique;
 }
 
+#if VV_HAVE_VISIONARAY && VV_HAVE_CUDA
+void SkipTree::updateVolume(const vvVolDesc& vd, visionaray::cuda_texture<visionaray::unorm<8>, 3>& tex)
+{
+  if (impl_->technique == SVTKdTreeCU)
+    impl_->cuda_kdtree.updateVolume(vd, tex);
+}
+#endif
+
 void SkipTree::updateVolume(const vvVolDesc& vd)
 {
   if (impl_->technique == SVTKdTree)

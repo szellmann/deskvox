@@ -33,6 +33,11 @@
 #include "vvmacros.h"
 #include "vvpixelformat.h"
 
+#if VV_HAVE_VISIONARAY
+#include <visionaray/math/unorm.h>
+#include <visionaray/texture/texture.h>
+#endif
+
 class vvVolDesc;
 
 namespace virvo
@@ -100,6 +105,9 @@ namespace virvo
 
     VVAPI Technique getTechnique() const;
 
+#if VV_HAVE_VISIONARAY && VV_HAVE_CUDA
+    VVAPI void updateVolume(const vvVolDesc& vd, visionaray::cuda_texture<visionaray::unorm<8>, 3>& tex);
+#endif
     VVAPI void updateVolume(const vvVolDesc& vd);
     VVAPI void updateTransfunc(const uint8_t* data,
         int numEntriesX,

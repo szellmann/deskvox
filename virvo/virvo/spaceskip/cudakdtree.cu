@@ -203,7 +203,7 @@ void swap(T& a, T& b)
 
 template <typename Tex>
 __global__ void svt_build_boxes(Tex transfunc,
-        uint8_t* voxels,
+        visionaray::cuda_texture_ref<visionaray::unorm<8>, 3> volume,
 #if WITH_GRID
         uint8_t* empty_cells,
         vec3i empty_cells_dims,
@@ -243,13 +243,16 @@ __global__ void svt_build_boxes(Tex transfunc,
   using I = int32_t;
 #endif
 
-  I base = I(z) * width * height + y * width + blockIdx.x * BX * 2;
   int ai = tx;
   int bi = tx + W/2;
-  float aval(voxels[base + ai]);
-  float bval(voxels[base + bi]);//printf("%f %f\n", aval, bval);return;
-  aval = lerp(mapping.x, mapping.y, aval / 255);
-  bval = lerp(mapping.x, mapping.y, bval / 255);
+  float fz = z/(float)(depth-1);
+  float fy = y/(float)(height-1);
+  float fx1= (blockIdx.x * BX * 2 + ai)/(float)(width-1);
+  float fx2= (blockIdx.x * BX * 2 + bi)/(float)(width-1);
+  float aval = tex3D(volume, vec3(fx1, fy, fz));
+  float bval = tex3D(volume, vec3(fx2, fy, fz));
+  aval = lerp(mapping.x, mapping.y, aval);
+  bval = lerp(mapping.x, mapping.y, bval);
   smem[ai][ty][tz] = tex1D(transfunc, aval).w < 0.0001 ? 0 : 1;
   smem[bi][ty][tz] = tex1D(transfunc, bval).w < 0.0001 ? 0 : 1;
 
@@ -452,20 +455,19 @@ struct CudaSVT
 {
  ~CudaSVT()
   {
-    cudaFree(voxels_);
 #if WITH_GRID
     cudaFree(empty_cells_);
 #endif
   }
-  void reset(vvVolDesc const& vd, aabbi bbox, int channel = 0);
+  void reset(vvVolDesc const& vd, aabbi bbox, visionaray::cuda_texture<visionaray::unorm<8>, 3>& tex);
 
   template <typename Tex>
   void build(Tex transfunc);
 
   aabbi boundary(aabbi bbox, const cudaStream_t& stream = 0) const;
 
-  // Channel values from volume description
-  uint8_t* voxels_ = nullptr;
+  // Volume texture reference
+  visionaray::cuda_texture<visionaray::unorm<8>, 3>* tex_ptr_ = nullptr;
 #if WITH_GRID
   uint8_t* empty_cells_ = nullptr;
   vec3i empty_cells_dims_;
@@ -480,26 +482,16 @@ struct CudaSVT
 };
 
 template <typename T>
-void CudaSVT<T>::reset(vvVolDesc const& vd, aabbi bbox, int channel)
+void CudaSVT<T>::reset(vvVolDesc const& vd, aabbi bbox, visionaray::cuda_texture<visionaray::unorm<8>, 3>& tex)
 {
   std::cout << cudaGetLastError() << '\n';
-
-  cudaFree(voxels_);
-
-  if (channel == -1)
-    return;
 
   size_t size = size_t(bbox.size().x) * bbox.size().y * bbox.size().z;
   width  = bbox.size().x;
   height = bbox.size().y;
   depth  = bbox.size().z;
   mapping = vec2(vd.mapping(0).x, vd.mapping(0).y);
-
-  std::vector<float> host_voxels(size);
-
-  cudaMalloc((void**)&voxels_, sizeof(uint8_t) * size);
-  cudaMemcpy(voxels_, vd.getRaw(), sizeof(uint8_t) * size, cudaMemcpyHostToDevice);
-
+  tex_ptr_ = &tex;
 }
 
 struct device_compare_morton
@@ -540,9 +532,12 @@ void CudaSVT<T>::build(Tex transfunc)
 #endif
     boxes_.resize(grid_size.x * grid_size.y * grid_size.z);
 
+    assert(tex_ptr_ != nullptr);
+    auto fm = tex_ptr_->get_filter_mode();
+    tex_ptr_->set_filter_mode(Nearest);
     svt_build_boxes<<<grid_size, block_size>>>(
             transfunc,
-            voxels_,
+            *tex_ptr_,
 #if WITH_GRID
             empty_cells_,
             empty_cells_dims_,
@@ -552,6 +547,7 @@ void CudaSVT<T>::build(Tex transfunc)
             height,
             depth,
             mapping);
+    tex_ptr_->set_filter_mode(fm);
   }
   //std::cout << "#boxes: " << boxes_.size() << '\n';
   //std::cout << boxes_.data() << '\n';
@@ -908,7 +904,8 @@ CudaKdTree::~CudaKdTree()
 {
 }
 
-void CudaKdTree::updateVolume(vvVolDesc const& vd, int channel)
+#if VV_HAVE_VISIONARAY && VV_HAVE_CUDA
+void CudaKdTree::updateVolume(vvVolDesc const& vd, visionaray::cuda_texture<visionaray::unorm<8>, 3>& tex)
 {
   using visionaray::aabbi;
   using visionaray::vec3i;
@@ -918,12 +915,18 @@ void CudaKdTree::updateVolume(vvVolDesc const& vd, int channel)
   impl_->dist = vec3(vd.getDist().x, vd.getDist().y, vd.getDist().z);
   impl_->scale = vd._scale;
 
-  impl_->svt.reset(vd, aabbi(vec3i(0), impl_->vox), channel);
+  impl_->svt.reset(vd, aabbi(vec3i(0), impl_->vox), tex);
+}
+#endif
+
+void CudaKdTree::updateVolume(vvVolDesc const& vd, int channel)
+{
+  throw std::runtime_error("That's not supported");
 }
 
 void CudaKdTree::updateTransfunc(const visionaray::texture_ref<visionaray::vec4, 1>& transfunc)
 {
-#if 1
+#if 0
   if (transfunc.data() == nullptr || transfunc.width() <= 1)
   {
     cudaFree(impl_->svt.voxels_);
@@ -969,7 +972,7 @@ void CudaKdTree::updateTransfunc(const visionaray::texture_ref<visionaray::vec4,
   //std::cout << timer.elapsed() << "\n";
 #endif
 
-#if 1//STATISTICS
+#if 0//STATISTICS
   static int cnt = 0;
   static std::vector<double> values;
   if (0)//cnt == 0) // Occupancy stats
@@ -1046,17 +1049,17 @@ void CudaKdTree::updateTransfunc(const visionaray::texture_ref<visionaray::vec4,
   }
 #endif
 
-#ifdef BUILD_TIMING
+#if 0//def BUILD_TIMING
   if (cnt >= 100) // warm up caches!
     values.push_back(ttt);
   std::cerr << ttt << "\n";
 #endif
 
-if (++cnt == 1100)
-{
-    std::cout << "Average node splitting time: " << std::accumulate(values.begin(), values.end(), 0.0) / values.size() << '\n';
-    std::cout << "\nRendering\n";
-}
+//if (++cnt == 1100)
+//{
+//    std::cout << "Average node splitting time: " << std::accumulate(values.begin(), values.end(), 0.0) / values.size() << '\n';
+//    std::cout << "\nRendering\n";
+//}
 }
 
 SkipTreeNode* CudaKdTree::getNodesDevPtr(int& numNodes)

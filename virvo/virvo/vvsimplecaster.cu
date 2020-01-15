@@ -1061,13 +1061,6 @@ void vvSimpleCaster::updateVolumeData()
 {
     vvRenderer::updateVolumeData();
 
-    impl_->tree.updateVolume(*vd);
-
-    bool hybrid = true;
-    if (hybrid)
-        impl_->grid.updateVolume(*vd);
-
-
     // Init GPU textures
     tex_filter_mode filter_mode = getParameter(VV_SLICEINT).asInt() == virvo::Linear ? Linear : Nearest;
 
@@ -1087,6 +1080,18 @@ void vvSimpleCaster::updateVolumeData()
     impl_->volume.reset(reinterpret_cast<unorm<8> const*>(tex_data));
     impl_->volume.set_address_mode(Clamp);
     impl_->volume.set_filter_mode(filter_mode);
+
+    // Init space skipping tree
+    if (impl_->tree.getTechnique() == virvo::SkipTree::SVTKdTreeCU)
+        impl_->tree.updateVolume(*vd, impl_->volume);
+    else
+    {
+        impl_->tree.updateVolume(*vd);
+    }
+
+    bool hybrid = true;
+    if (hybrid)
+        impl_->grid.updateVolume(*vd);
 }
 
 void  vvSimpleCaster::setCurrentFrame(size_t frame) 
