@@ -802,6 +802,59 @@ void vvVolDesc::copyFrame(uint8_t* ptr)
 }
 
 //----------------------------------------------------------------------------
+/** Creates a delta frame
+  @param ptr  pointer to _preallocated_ getFrameBytes() memory
+*/
+void vvVolDesc::makeDeltaFrame(uint8_t* ptr, int frame1, int frame2)
+{
+  assert(ptr != nullptr);
+//float vvVolDesc::getChannelValue(int frame, size_t x, size_t y, size_t z, int channel) const
+
+  const uint8_t* raw1 = getRaw(frame1);
+  const uint8_t* raw2 = getRaw(frame2);
+
+#ifdef _OPENMP
+  #pragma omp parallel for
+#endif
+  for (size_t index=0; index<getFrameVoxels(); ++index)
+  {
+    switch(bpc)
+    {
+      case 1:
+      {
+        // May overflow deliberately
+        uint8_t diff = raw2[index] - raw1[index];
+        memcpy(&ptr[index * bpc], &diff, bpc);
+        break;
+      }
+      case 2:
+      {
+#ifdef BOOST_LITTLE_ENDIAN
+        unsigned short ival1 = ((unsigned short)raw1[index+1] << 8) | raw1[index];
+        unsigned short ival2 = ((unsigned short)raw2[index+1] << 8) | raw2[index];
+#else
+        unsigned short ival1 = ((unsigned short)raw1[index] << 8) | raw1[index+1];
+        unsigned short ival2 = ((unsigned short)raw2[index] << 8) | raw2[index+1];
+#endif
+        // May overflow deliberately
+        unsigned short diff = ival2 - ival1;
+        memcpy(&ptr[index * bpc], &diff, bpc);
+        break;
+      }
+      case 4:
+      {
+        float fval1 = *((float*)(raw1 + index));
+        float fval2 = *((float*)(raw2 + index));
+        float diff = fval2 - fval1;
+        memcpy(&ptr[index * bpc], &diff, bpc);
+        break;
+      }
+      default: assert(0); break;
+    }
+  }
+}
+
+//----------------------------------------------------------------------------
 /** Updates the volume data of a frame. The data format needs to stay
 the same.
   @param frame frame ID (0=first)

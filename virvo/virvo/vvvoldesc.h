@@ -305,6 +305,7 @@ public:
     ErrorType mergeFrames(ssize_t slicesPerFrame=-1);
     void   addFrame(uint8_t*, DeleteType, int fd=-1);
     void   copyFrame(uint8_t*);
+    void   makeDeltaFrame(uint8_t* ptr, int frame1, int frame2);
     void   removeSequence();
     void   makeHistogram(int frame, int chan1, int numChan, int*, int*, float, float) const;
     void   normalizeHistogram(int, int*, float*, NormalizationType);
