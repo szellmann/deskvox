@@ -47,6 +47,120 @@ using namespace visionaray;
 
 
 //-------------------------------------------------------------------------------------------------
+// Compressed delta frame
+//
+
+struct CompressedDeltaFrame
+{
+  // levels of the respective bricks
+  std::vector<uint8_t> levels;
+
+  // Raw data bytes
+  std::vector<uint8_t> bytes;
+
+  // Build compressed frame from input
+  void init(const vvVolDesc& vd, const uint8_t* deltaFrame, vec3i logicalBrickSize = vec3i(16,16,16));
+
+  // Get size in bytes of the compressed frame
+  size_t getSize() const;
+};
+
+
+// Build up the compressed delta frame; this function is not particularly optimized, i.e. we
+// for example just append the compressed, raw data to an std::vector. More importantly, the
+// arrays that the struct stores should later on be easily accessible from within a CUDA kernel
+void CompressedDeltaFrame::init(const vvVolDesc& vd, const uint8_t* deltaFrame, vec3i logicalBrickSize)
+{
+  // TODO!!!
+  assert(vd->vox[0]%logicalBrickSize.x==0 && vd->vox[1]%logicalBrickSize.y==0 && vd->vox[2]%logicalBrickSize.z==0);
+  assert(vd->chan == 1);
+
+  int sameBricks=0;
+
+  for (int z=0; z<vd.vox[2]; z+=logicalBrickSize.z)
+  {
+    for (int y=0; y<vd.vox[1]; y+=logicalBrickSize.y)
+    {
+      for (int x=0; x<vd.vox[0]; x+=logicalBrickSize.x)
+      {
+        size_t baseIndex = (z*vd.vox[0]*vd.vox[1]
+                          + y*vd.vox[0]
+                          + x) * vd.getBPV();
+
+        uint8_t value[4];
+        for (int b=0; b<vd.getBPV(); ++b)
+          value[b] = deltaFrame[baseIndex + b];
+
+        bool allTheSame = true;
+        for (int zz=0; zz<logicalBrickSize.z; ++zz)
+        {
+          for (int yy=0; yy<logicalBrickSize.y; ++yy)
+          {
+            for (int xx=0; xx<logicalBrickSize.x; ++xx)
+            {
+              size_t index = baseIndex
+                           + (zz*logicalBrickSize.x*logicalBrickSize.y
+                           + yy*logicalBrickSize.x
+                           + xx) * vd.getBPV();
+              // TODO: might consider a floating point comparison
+              // with an epsilon region; for now the data sets we
+              // test with only have 1-byte voxels
+              for (int b=0; b<vd.getBPV(); ++b)
+              {
+                if (deltaFrame[index+b] != value[b])
+                {
+                //std::cout << xx << ' ' << yy << ' ' << zz << ": " << (int)deltaFrame[index+b] << ' ' << (int)value[b] << '\n';
+                  allTheSame = false;
+                  goto storeBrick;
+                }
+              }
+            }
+          }
+        }
+
+        storeBrick:
+        if (allTheSame)
+        {++sameBricks;
+          for (int b=0; b<vd.getBPV(); ++b)
+          {
+            bytes.push_back(value[b]);
+          }
+          levels.push_back(0);
+        }
+        else
+        {
+          for (int zz=0; zz<logicalBrickSize.z; ++zz)
+          {
+            for (int yy=0; yy<logicalBrickSize.y; ++yy)
+            {
+              for (int xx=0; xx<logicalBrickSize.x; ++xx)
+              {
+                size_t index = baseIndex
+                             + (zz*logicalBrickSize.x*logicalBrickSize.y
+                             + yy*logicalBrickSize.x
+                             + xx) * vd.getBPV();
+                for (int b=0; b<vd.getBPV(); ++b)
+                {
+                  bytes.push_back(deltaFrame[index+b]);
+                }
+              }
+            }
+          }
+          levels.push_back(4);
+        }
+      }
+    }
+  }
+  std::cout << "# identical bricks: " << sameBricks << '\n';
+}
+
+size_t CompressedDeltaFrame::getSize() const
+{
+  return levels.size() * sizeof(uint8_t) + bytes.size() * sizeof(uint8_t);
+}
+
+
+//-------------------------------------------------------------------------------------------------
 //
 //
 
@@ -1065,6 +1179,28 @@ void vvSimpleCaster::updateVolumeData()
 
     vvRenderer::updateVolumeData();
 
+    // If this is the first time this function is called or
+    // we have a new volume, create delta frames
+    static bool todo = true; // well: TODO!
+    if (todo && vd->frames > 1)
+    {
+      assert(vd->frame == vd->getStoredFrames());
+
+      uint8_t* bytes = new uint8_t[vd->getFrameBytes()];
+
+      for (int f=1; f<vd->frames; ++f)
+      {
+        vd->makeDeltaFrame(bytes, f-1, f);
+        CompressedDeltaFrame cdf;
+        cdf.init(vd, bytes, vec3i(16));
+        std::cout << "Raw frame       : " << vd->getFrameBytes() << '\n';
+        std::cout << "Compressed frame: " << cdf.getSize() << '\n';
+      }
+
+      delete[] bytes;
+      todo = false;
+    }
+
     // Init GPU textures
     tex_filter_mode filter_mode = getParameter(VV_SLICEINT).asInt() == virvo::Linear ? Linear : Nearest;
 
@@ -1142,3 +1278,7 @@ bool vvSimpleCaster::instantClassification() const
     return true;
 }
 
+//============================================================================
+// End of File
+//============================================================================
+// vim: sw=2:expandtab:softtabstop=2:ts=2:cino=\:0g0t0
