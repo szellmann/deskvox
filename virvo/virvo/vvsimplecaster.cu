@@ -47,6 +47,106 @@ using namespace visionaray;
 
 
 //-------------------------------------------------------------------------------------------------
+// Motion vector grid
+//
+
+struct MotionVectorGrid
+{
+  // The motion vectors (TODO: search radius 7==> 3 bits per component?!)
+  std::vector<vec3i> motionVectors;
+
+  void init(const vvVolDesc& vd, int frame1, int frame2, vec3i brickSize = vec3i(16), int searchRadius = 7);
+};
+
+
+// Build up the compressed delta frame; this function is not particularly optimized, i.e. we
+// for example just append the compressed, raw data to an std::vector. More importantly, the
+// arrays that the struct stores should later on be easily accessible from within a CUDA kernel
+void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i brickSize, int searchRadius)
+{
+  // TODO!!!
+  assert(vd.vox[0]%brickSize.x==0 && vd.vox[1]%brickSize.y==0 && vd.vox[2]%brickSize.z==0);
+  assert(vd.chan == 1);
+
+  for (int z1=0; z1<vd.vox[2]; z1+=brickSize.z)
+  {
+    for (int y1=0; y1<vd.vox[1]; y1+=brickSize.y)
+    {
+      for (int x1=0; x1<vd.vox[0]; x1+=brickSize.x)
+      {
+        vec3i begin(x1, y1, z1);
+        vec3i end = begin + brickSize;
+
+        vec3i bestMatch(100000); // sth. that won't overflow
+        float bestMAD = FLT_MAX;
+
+        for (int z2 = z1-searchRadius; z2<z1+searchRadius; ++z2)
+        {
+          if (z2 < 0)
+            continue;
+          if (z2+brickSize.z >= vd.vox[2])
+            break;
+
+          for (int y2 = y1-searchRadius; y2<y1+searchRadius; ++y2)
+          {
+            if (y2 < 0)
+              continue;
+            if (y2+brickSize.y >= vd.vox[1])
+              break;
+
+            for (int x2 = x1-searchRadius; x2<x1+searchRadius; ++x2)
+            {
+              if (x2 < 0)
+                continue;
+              if (x2+brickSize.x >= vd.vox[0])
+                break;
+
+              float mad = 0.f;
+              vec3i begin2(x2, y2, z2);
+              vec3i end2 = begin2 + brickSize;
+              //if (begin.z-begin2.z>0) std::cout << begin-begin2 << '\n';
+
+              for (int zz=0; zz<brickSize.z; ++zz)
+              {
+                for (int yy=0; yy<brickSize.y; ++yy)
+                {
+                  for (int xx=0; xx<brickSize.x; ++xx)
+                  {
+                    float val1 = vd.getChannelValue(frame1, x1+xx, y1+yy, z1+zz, 0);
+                    float val2 = vd.getChannelValue(frame2, x2+xx, y2+yy, z2+zz, 0);
+                    mad += fabsf(val2-val1);
+                  }
+                }
+              }
+
+              int N = brickSize.x*brickSize.y*brickSize.z;
+              mad /= N*N;
+
+              vec3i dist1 = bestMatch-begin;
+              vec3i dist2 = begin2-begin;
+              vec3f distf1(dist1);
+              vec3f distf2(dist2);
+              float len1 = length(distf1);
+              float len2 = length(distf2);
+
+              if (mad < bestMAD || (mad == bestMAD && len2 < len1))
+              {
+                bestMatch = begin2;
+                bestMAD = mad;
+              }
+            }
+          }
+        }
+
+        //std::cout << begin-bestMatch << ' ' << bestMAD << '\n';
+        motionVectors.push_back(begin-bestMatch);
+      }
+    }
+  }
+}
+
+
+//-------------------------------------------------------------------------------------------------
 // Compressed delta frame
 //
 
@@ -1190,11 +1290,8 @@ void vvSimpleCaster::updateVolumeData()
 
       for (int f=1; f<vd->frames; ++f)
       {
-        vd->makeDeltaFrame(bytes, f-1, f);
-        CompressedDeltaFrame cdf;
-        cdf.init(vd, bytes, vec3i(16));
-        std::cout << "Raw frame       : " << vd->getFrameBytes() << '\n';
-        std::cout << "Compressed frame: " << cdf.getSize() << '\n';
+        MotionVectorGrid mvg;
+        mvg.init(vd, f-1, f, vec3i(16), 7);
       }
 
       delete[] bytes;
