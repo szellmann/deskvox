@@ -68,7 +68,10 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
   assert(vd.vox[0]%brickSize.x==0 && vd.vox[1]%brickSize.y==0 && vd.vox[2]%brickSize.z==0);
   assert(vd.chan == 1);
 
-  motionVectors.resize((vd.vox[0]/brickSize.x) * (vd.vox[1]/brickSize.y) * (vd.vox[2]/brickSize.z));
+  vec3i numBricks((vd.vox[0]/brickSize.x),
+                  (vd.vox[1]/brickSize.y),
+                  (vd.vox[2]/brickSize.z));
+  motionVectors.resize(numBricks.x*numBricks.y*numBricks.z);
 
   #pragma omp parallel for collapse(3)
   for (int z1=0; z1<vd.vox[2]; z1+=brickSize.z)
@@ -146,7 +149,8 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
 
 found:
         //std::cout << begin << ": " << bestMatch-begin << ' ' << bestMAD << '\n';
-        size_t index = (z1/brickSize.z)*brickSize.x*brickSize.y + (y1/brickSize.y)*brickSize.x + (x1/brickSize.x);
+        size_t index = (z1/brickSize.z)*numBricks.x*numBricks.y + (y1/brickSize.y)*numBricks.x + (x1/brickSize.x);
+        std::cout << index << '\n';
         motionVectors[index] = bestMatch-begin;
       }
     }
@@ -1294,15 +1298,17 @@ void vvSimpleCaster::updateVolumeData()
     {
       assert(vd->frame == vd->getStoredFrames());
 
-      uint8_t* bytes = new uint8_t[vd->getFrameBytes()];
-
+      std::fstream file("motion.bin", std::ios::out | std::ios::binary);
       for (int f=1; f<vd->frames; ++f)
       {
+        std::cout << "Compute motion vectors: " << f << " from " << (f-1) << '\n';
         MotionVectorGrid mvg;
         mvg.init(vd, f-1, f, vec3i(16), 7);
+        std::cout << "Write motion vectors...\n";
+        file.write((char*)mvg.motionVectors.data(), mvg.motionVectors.size() * sizeof(vec3i));
+        std::cout << "Done.\n";
       }
 
-      delete[] bytes;
       todo = false;
     }
 
