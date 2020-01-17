@@ -68,6 +68,9 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
   assert(vd.vox[0]%brickSize.x==0 && vd.vox[1]%brickSize.y==0 && vd.vox[2]%brickSize.z==0);
   assert(vd.chan == 1);
 
+  motionVectors.resize((vd.vox[0]/brickSize.x) * (vd.vox[1]/brickSize.y) * (vd.vox[2]/brickSize.z));
+
+  #pragma omp parallel for collapse(3)
   for (int z1=0; z1<vd.vox[2]; z1+=brickSize.z)
   {
     for (int y1=0; y1<vd.vox[1]; y1+=brickSize.y)
@@ -80,21 +83,21 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
         vec3i bestMatch(100000); // sth. that won't overflow
         float bestMAD = FLT_MAX;
 
-        for (int z2 = z1-searchRadius; z2<z1+searchRadius; ++z2)
+        for (int z2 = z1-searchRadius; z2<=z1+searchRadius; ++z2)
         {
           if (z2 < 0)
             continue;
           if (z2+brickSize.z >= vd.vox[2])
             break;
 
-          for (int y2 = y1-searchRadius; y2<y1+searchRadius; ++y2)
+          for (int y2 = y1-searchRadius; y2<=y1+searchRadius; ++y2)
           {
             if (y2 < 0)
               continue;
             if (y2+brickSize.y >= vd.vox[1])
               break;
 
-            for (int x2 = x1-searchRadius; x2<x1+searchRadius; ++x2)
+            for (int x2 = x1-searchRadius; x2<=x1+searchRadius; ++x2)
             {
               if (x2 < 0)
                 continue;
@@ -133,13 +136,18 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
               {
                 bestMatch = begin2;
                 bestMAD = mad;
+
+                if (mad == 0.f && len2 < FLT_EPSILON)
+                  goto found;
               }
             }
           }
         }
 
-        //std::cout << begin-bestMatch << ' ' << bestMAD << '\n';
-        motionVectors.push_back(begin-bestMatch);
+found:
+        //std::cout << begin << ": " << bestMatch-begin << ' ' << bestMAD << '\n';
+        size_t index = (z1/brickSize.z)*brickSize.x*brickSize.y + (y1/brickSize.y)*brickSize.x + (x1/brickSize.x);
+        motionVectors[index] = bestMatch-begin;
       }
     }
   }
