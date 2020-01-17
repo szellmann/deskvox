@@ -73,7 +73,7 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
                   (vd.vox[2]/brickSize.z));
   motionVectors.resize(numBricks.x*numBricks.y*numBricks.z);
 
-  #pragma omp parallel for collapse(3)
+  //#pragma omp parallel for collapse(3)
   for (int z1=0; z1<vd.vox[2]; z1+=brickSize.z)
   {
     for (int y1=0; y1<vd.vox[1]; y1+=brickSize.y)
@@ -118,15 +118,24 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
                 {
                   for (int xx=0; xx<brickSize.x; ++xx)
                   {
+#ifdef USE_FLOAT
                     float val1 = vd.getChannelValue(frame1, x1+xx, y1+yy, z1+zz, 0);
                     float val2 = vd.getChannelValue(frame2, x2+xx, y2+yy, z2+zz, 0);
                     mad += fabsf(val2-val1);
+#else
+                    size_t idx1 = (z1+zz)*vd.vox[1]*vd.vox[0] + (x1+xx)*vd.vox[0] + size_t(z1+zz);
+                    size_t idx2 = (z2+zz)*vd.vox[1]*vd.vox[0] + (x2+xx)*vd.vox[0] + size_t(z2+zz);
+                    assert(vd.getBPV()==1);
+                    int val1 = vd.getRaw(frame1)[idx1];
+                    int val2 = vd.getRaw(frame2)[idx2];
+                    mad += abs(val2-val1);
+#endif
                   }
                 }
               }
 
-              int N = brickSize.x*brickSize.y*brickSize.z;
-              mad /= N*N;
+              //int N = brickSize.x*brickSize.y*brickSize.z;
+              //mad /= N*N;
 
               vec3i dist1 = bestMatch-begin;
               vec3i dist2 = begin2-begin;
@@ -140,7 +149,7 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
                 bestMatch = begin2;
                 bestMAD = mad;
 
-                if (mad == 0.f && len2 < FLT_EPSILON)
+                if (mad == 0 && len2 < FLT_EPSILON)
                   goto found;
               }
             }
@@ -148,9 +157,9 @@ void MotionVectorGrid::init(const vvVolDesc& vd, int frame1, int frame2, vec3i b
         }
 
 found:
-        //std::cout << begin << ": " << bestMatch-begin << ' ' << bestMAD << '\n';
         size_t index = (z1/brickSize.z)*numBricks.x*numBricks.y + (y1/brickSize.y)*numBricks.x + (x1/brickSize.x);
-        std::cout << index << '\n';
+        //std::cout << index << '\n';
+        //std::cout << begin << ": " << bestMatch-begin << ' ' << bestMAD << '\n';
         motionVectors[index] = bestMatch-begin;
       }
     }
@@ -1298,9 +1307,9 @@ void vvSimpleCaster::updateVolumeData()
     {
       assert(vd->frame == vd->getStoredFrames());
 
-      std::fstream file("motion.bin", std::ios::out | std::ios::binary);
       for (int f=1; f<vd->frames; ++f)
       {
+        std::fstream file("motion.bin", std::ios::out | std::ios::binary | std::ios::app);
         std::cout << "Compute motion vectors: " << f << " from " << (f-1) << '\n';
         MotionVectorGrid mvg;
         mvg.init(vd, f-1, f, vec3i(16), 7);
