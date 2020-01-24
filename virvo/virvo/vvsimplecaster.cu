@@ -55,7 +55,11 @@ struct MotionVectorGrid
   // The motion vectors (TODO: search radius 7==> 3 bits per component?!)
   std::vector<vec3i> motionVectors;
 
+  // Build up motion vectors
   void init(const vvVolDesc& vd, int frame1, int frame2, vec3i brickSize = vec3i(16), int searchRadius = 7);
+
+  // Load motion vectors from file
+  void init(const vvVolDesc& vd, std::fstream& file, vec3i brickSize = vec3i(16));
 };
 
 
@@ -164,6 +168,19 @@ found:
       }
     }
   }
+}
+
+void MotionVectorGrid::init(const vvVolDesc& vd, std::fstream& file, vec3i brickSize)
+{
+  // TODO!!!
+  assert(vd.vox[0]%brickSize.x==0 && vd.vox[1]%brickSize.y==0 && vd.vox[2]%brickSize.z==0);
+  assert(vd.chan == 1);
+
+  vec3i numBricks((vd.vox[0]/brickSize.x),
+                  (vd.vox[1]/brickSize.y),
+                  (vd.vox[2]/brickSize.z));
+  motionVectors.resize(numBricks.x*numBricks.y*numBricks.z);
+  file.read((char*)motionVectors.data(), motionVectors.size() * sizeof(vec3i));
 }
 
 
@@ -937,6 +954,9 @@ struct vvSimpleCaster::Impl
 
     // Simple grid (preclassified)
     thrust::device_vector<uint8_t> d_cells_empty;
+
+    // Motion vector grids
+    std::vector<MotionVectorGrid> motionVectorGrids;
 };
 
 vvSimpleCaster::vvSimpleCaster(vvVolDesc* vd, vvRenderState renderState)
@@ -956,6 +976,19 @@ vvSimpleCaster::vvSimpleCaster(vvVolDesc* vd, vvRenderState renderState)
         rt = virvo::DeviceBufferRT::create(virvo::PF_RGBA32F, virvo::PF_UNSPECIFIED);
     }
     setRenderTarget(rt);
+
+#if 0
+    // Load motion vectors
+    std::fstream file("motion.bin", std::ios::in | std::ios::binary);
+    if (file)
+    {
+      impl_->motionVectorGrids.resize(vd->frames-1);
+      for (int f=1; f<vd->frames; ++f)
+      {
+        impl_->motionVectorGrids[f-1].init(vd, file, vec3i(16));
+      }
+    }
+#endif
 
     updateVolumeData();
     updateTransferFunction();
@@ -1300,16 +1333,21 @@ void vvSimpleCaster::updateVolumeData()
 
     vvRenderer::updateVolumeData();
 
+    // TODO: that's a task for vconv!!
     // If this is the first time this function is called or
     // we have a new volume, create delta frames
-    static bool todo = true; // well: TODO!
+    //static bool todo = true; // well: TODO!
+    static bool todo = true; // currently deactivated
     if (todo && vd->frames > 1)
     {
       assert(vd->frame == vd->getStoredFrames());
 
       for (int f=1; f<vd->frames; ++f)
       {
-        std::fstream file("motion.bin", std::ios::out | std::ios::binary | std::ios::app);
+        std::ostringstream str;
+        str << "motion1024_" << f << ".bin";
+        std::cout << str.str() << '\n';
+        std::fstream file(str.str(), std::ios::out | std::ios::binary | std::ios::app);
         std::cout << "Compute motion vectors: " << f << " from " << (f-1) << '\n';
         MotionVectorGrid mvg;
         mvg.init(vd, f-1, f, vec3i(16), 7);
