@@ -351,7 +351,7 @@ __global__ void svt_build_boxes(Tex transfunc,
   {
 #if WITH_GRID
     // block dimensions are 8^3 but grid is 16^3
-    vec3i cellIndex(blockIdx.x/4,blockIdx.y/2,blockIdx.z/2);
+    vec3i cellIndex(blockIdx.x/2,blockIdx.y/2,blockIdx.z/2);
     //printf("%d %d %d\n",cellIndex.x,cellIndex.y,cellIndex.z);
     int cellIndexLinear = cellIndex.z * empty_cells_dims.x * empty_cells_dims.y
                         + cellIndex.y * empty_cells_dims.x
