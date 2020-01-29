@@ -755,6 +755,23 @@ struct Kernel
 
         float const* max_opacities = max_opacities_;
 
+        auto sample = [&](vec3f const& tex_coord, vec4f& dst)
+        {
+            float voxel = tex3D(volume, tex_coord);
+            vec4f color = tex1D(transfunc, voxel);
+
+            //color = shade(color, -ray.dir, tex_coord);
+
+            // opacity correction
+            color.w = 1.0f - pow(1.0f - color.w, delta);
+
+            // premultiplied alpha
+            color.xyz() *= color.w;
+
+            // compositing
+            dst += color * (1.0f - dst.w);
+        };
+
         int num_steps = 0;
         for (int i = 0; i < num_leaves; ++i)
         {
@@ -779,15 +796,17 @@ struct Kernel
                                               1 - (*reinterpret_cast<unsigned*>(&ray.dir.z) >> 31));
 
             vec3i hit_cell;
+            vec3f pos = ray.ori + t * ray.dir;
+            vec3f coord01(
+                    (pos.x + (bbox.size().x / 2)) / bbox.size().x,
+                    (pos.y + (bbox.size().y / 2)) / bbox.size().y,
+                    (pos.z + (bbox.size().z / 2)) / bbox.size().z
+                    );
+            vec3f inc = (ray.dir * delta / bbox.size());
             while (t < tmax)
             {
                 // Compute the hit point in the local coordinate system.
-                vec3f pos = ray.ori + t * ray.dir;
-                vector<3, S> coord01(
-                        (pos.x + (bbox.size().x / 2)) / bbox.size().x,
-                        (pos.y + (bbox.size().y / 2)) / bbox.size().y,
-                        (pos.z + (bbox.size().z / 2)) / bbox.size().z
-                        );
+                vec3f tex_coord = vec3f(0,1,1)+coord01*vec3f(1,-1,-1);
                 vec3f localCoordinates = coord01 * vec3(vox-1);
 
                 // Compute the 3D index of the cell containing the hit point.
@@ -797,7 +816,8 @@ struct Kernel
                 if (cellIndex == hit_cell)
                 {
                     num_steps += 1;
-                    integrate(ray, t, t + delta, result.color);
+                    sample(tex_coord, result.color);
+                    coord01 += inc;
                     t += delta;
                     continue;
                 }
@@ -812,7 +832,8 @@ struct Kernel
                 if (maximumOpacity > 0.0f)
                 {
                     num_steps += 1;
-                    integrate(ray, t, t + delta, result.color);
+                    sample(tex_coord, result.color);
+                    coord01 += inc;
                     t += delta;
                     continue;
                 }
@@ -831,6 +852,7 @@ struct Kernel
                 const float dist = ceil(abs(exitDist - t) / delta) * delta;
 
                 // Advance the ray so the next hit point will be outside the empty cell.
+                coord01 += inc*(dist/delta);
                 t += dist;
             }
         }
