@@ -2356,6 +2356,30 @@ void vvVolDesc::resize(ssize_t w, ssize_t h, ssize_t s, InterpolationType ipt, b
   vox[2] = s;
 }
 
+void vvVolDesc::scaleRange(float factor)
+{
+  int channel = 0; // TODO?
+  for (size_t f=0; f<frames; ++f)
+  {
+    uint8_t* data = getRaw(f);
+    //rd = raw.getData();
+    //raw.next();
+    //ptr = &rd[0];
+    for (ssize_t z=0; z<vox[2]; ++z)
+      for (ssize_t y=0; y<vox[1]; ++y)
+        for (ssize_t x=0; x<vox[0]; ++x) {
+          float val = getChannelValue(f, x, y, z, channel);
+          val *= factor;
+          
+          size_t bpv = getBPV();
+          size_t indexXYZ = x + y * vox[0] + z * vox[0] * vox[1];
+          size_t index = bpv * indexXYZ + channel * bpc;
+
+          *((float*)(data + index)) = val;
+        }
+  }
+}
+
 void vvVolDesc::replaceData(int numChan, const int *oldVal, const int *newVal, bool verbose)
 {
   size_t numReplaced = 0;

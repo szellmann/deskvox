@@ -699,6 +699,12 @@ void vvConv::modifyInputFile(vvVolDesc* v)
     v->resize(newSize[0], newSize[1], newSize[2], ipt, true);
     cerr << endl;
   }
+  if (scaleRange)
+  {
+    cerr << "scaling each voxel by : " << scaleRangeFactor;
+    v->scaleRange(scaleRangeFactor);
+    cerr << endl;
+  }
   if (channels>-1)
   {
     cerr << "Changing number of channels: ";
@@ -1414,6 +1420,22 @@ bool vvConv::parseCommandLine(int argc, char** argv)
       }
       resizeFactor = (float)atof(argv[arg]);
       if (resizeFactor <= 0.0f)
+      {
+        cerr << "Invalid scale factor." << endl;
+        return false;
+      }
+    }
+
+    else if (vvToolshed::strCompare(argv[arg], "-scalerange")==0)
+    {
+      scaleRange = true;
+      if ((++arg)>=argc) 
+      {
+        cerr << "Scale factor missing." << endl;
+        return false;
+      }
+      scaleRangeFactor = (float)atof(argv[arg]);
+      if (scaleRange <= 0.0f)
       {
         cerr << "Invalid scale factor." << endl;
         return false;
